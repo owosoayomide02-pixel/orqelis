@@ -1,0 +1,51 @@
+# Render Blueprint — Orqelis API
+# Dashboard → New → Blueprint → this repo
+# Health: GET /health
+
+services:
+  - type: web
+    name: orqelis-api
+    runtime: docker
+    dockerfilePath: ./infrastructure/docker/api.Dockerfile
+    dockerContext: .
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: AUTO_MIGRATE
+        value: "true"
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: API_HOST
+        value: 0.0.0.0
+      - key: API_PORT
+        value: 8000
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: ENCRYPTION_KEY
+        generateValue: true
+      - key: CORS_ORIGINS
+        sync: false
+      - key: APP_BASE_URL
+        sync: false
+      - key: ADMIN_BASE_URL
+        sync: false
+      - key: PUBLIC_API_URL
+        sync: false
+      - key: NEXT_PUBLIC_API_URL
+        sync: false
+      - key: AI_PROVIDER
+        value: groq
+      - key: AI_API_KEY
+        sync: false
+      - key: AI_BASE_URL
+        value: https://api.groq.com/openai/v1
+      - key: AI_MODEL
+        value: openai/gpt-oss-20b
+      - key: FOUNDER_EMAIL
+        sync: false
+      - key: FOUNDER_PASSWORD
+        sync: false

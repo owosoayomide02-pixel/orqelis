@@ -1,0 +1,20 @@
+@import "tailwindcss";
+
+:root {
+  --bg: #05070d;
+  --surface: #0a0f1c;
+  --fg: #f7f9fc;
+  --fg-muted: #8b95a7;
+  --brand: #7c5cff;
+  --ai: #42d3ff;
+  --line: rgba(247, 249, 252, 0.1);
+}
+
+html, body { min-height: 100%; background: var(--bg); color: var(--fg); }
+body {
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  background-image: radial-gradient(800px 400px at 10% -10%, rgba(124, 92, 255, 0.16), transparent 50%);
+}
+.glass { background: rgba(10, 15, 28, 0.75); border: 1px solid var(--line); }
+input { width: 100%; border-radius: 1rem; border: 1px solid var(--line); background: rgba(5,7,13,0.6); color: var(--fg); padding: 0.85rem 1rem; }
+.btn { border-radius: 999px; padding: 0.8rem 1.2rem; background: var(--brand); color: white; }

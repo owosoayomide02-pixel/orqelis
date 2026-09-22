@@ -1,0 +1,49 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: orqelis
+      POSTGRES_PASSWORD: orqelis
+      POSTGRES_DB: orqelis
+    ports:
+      - "5432:5432"
+    volumes:
+      - orqelis_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U orqelis -d orqelis"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/api.Dockerfile
+    environment:
+      DATABASE_URL: postgresql+asyncpg://orqelis:orqelis@postgres:5432/orqelis
+      REDIS_URL: redis://redis:6379/0
+      JWT_SECRET: ${JWT_SECRET:-dev-only-change-me}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-dev-only-change-me}
+      AUTO_MIGRATE: "true"
+      CORS_ORIGINS: http://localhost:3000,http://localhost:3001
+      ENVIRONMENT: development
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  orqelis_pg:

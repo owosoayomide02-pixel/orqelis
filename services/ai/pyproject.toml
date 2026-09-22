@@ -1,0 +1,16 @@
+[project]
+name = "orqelis-ai"
+version = "0.1.0"
+description = "Orqelis AI gateway for security analysis"
+requires-python = ">=3.11"
+dependencies = [
+  "httpx>=0.28.0",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["orqelis_ai*"]
