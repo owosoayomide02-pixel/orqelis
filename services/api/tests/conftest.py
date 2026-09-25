@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 
 os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///:memory:"
-os.environ["JWT_SECRET"] = "test-secret-please-change"
+os.environ["JWT_SECRET"] = "test-secret-please-change-32chars!!"
 os.environ["ENVIRONMENT"] = "development"
 os.environ["AUTO_MIGRATE"] = "true"
 os.environ["FOUNDER_EMAIL"] = "founder@example.com"
@@ -14,6 +14,9 @@ os.environ["AI_API_KEY"] = ""
 os.environ["AI_BASE_URL"] = ""
 os.environ["AI_MODEL"] = ""
 os.environ["OPENAI_API_KEY"] = ""
+os.environ["AUTH_RATE_LIMIT_PER_MINUTE"] = "1000"
+os.environ["RATE_LIMIT_PER_MINUTE"] = "10000"
+os.environ["SCANNER_MODE"] = "mock"
 
 import pytest
 from httpx import ASGITransport, AsyncClient

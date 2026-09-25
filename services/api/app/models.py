@@ -215,12 +215,50 @@ class Policy(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 
+class WebAsset(Base):
+    __tablename__ = "web_assets"
+    __table_args__ = (UniqueConstraint("organization_id", "domain", name="uq_org_domain"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), index=True)
+    domain: Mapped[str] = mapped_column(String(253), nullable=False)
+    verification_status: Mapped[str] = mapped_column(String(32), default="unverified")
+    verification_method: Mapped[str] = mapped_column(String(32), default="dns_txt")
+    verification_token: Mapped[str] = mapped_column(String(64), nullable=False)
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_by_user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    archived: Mapped[bool] = mapped_column(Boolean, default=False)
+    last_verify_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class ScanJob(Base):
+    __tablename__ = "scan_jobs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    web_asset_id: Mapped[str] = mapped_column(ForeignKey("web_assets.id"), index=True)
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), index=True)
+    role: Mapped[str] = mapped_column(String(32), default="hunter")
+    status: Mapped[str] = mapped_column(String(32), default="queued")
+    tools_run: Mapped[list] = mapped_column(JSON, default=list)
+    raw_output: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    current_tool: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    findings_count: Mapped[int] = mapped_column(Integer, default=0)
+    requested_by_user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class SecurityEvent(Base):
     __tablename__ = "events"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), index=True)
-    device_id: Mapped[str] = mapped_column(ForeignKey("devices.id"), index=True)
+    device_id: Mapped[str | None] = mapped_column(ForeignKey("devices.id"), nullable=True, index=True)
+    source: Mapped[str] = mapped_column(String(32), default="device", index=True)
+    source_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     category: Mapped[str] = mapped_column(String(64), index=True)
     event_type: Mapped[str] = mapped_column(String(80), index=True)
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)

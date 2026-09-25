@@ -22,6 +22,8 @@ def _gateway() -> AIGateway:
         api_key=settings.resolved_ai_key,
         base_url=settings.ai_base_url,
         model=settings.ai_model,
+        model_light=settings.ai_model_light,
+        model_heavy=settings.ai_model_heavy,
     )
 
 

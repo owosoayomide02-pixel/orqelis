@@ -1,0 +1,14 @@
+{
+  "name": "orqelis-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "prebuild": "cd ../web && cross-env ORQELIS_STATIC_EXPORT=1 NEXT_PUBLIC_STATIC_EXPORT=1 npm run build",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "npm run prebuild && tauri build"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0",
+    "cross-env": "^7.0.3"
+  }
+}

@@ -1,13 +1,20 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { FormEvent, useState } from "react";
-import { SiteFooter, SiteHeader } from "@/components/SiteChrome";
+import { useRouter, useSearchParams } from "next/navigation";
+import { FormEvent, Suspense, useState } from "react";
+import { AuthPanel, AuthShell } from "@/components/SiteChrome";
 import { api } from "@/lib/api";
 
-export default function LoginPage() {
+function safeNext(path: string | null): string {
+  if (!path || !path.startsWith("/") || path.startsWith("//")) return "/dashboard";
+  return path;
+}
+
+function LoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const nextPath = safeNext(searchParams.get("next"));
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [totp, setTotp] = useState("");
@@ -26,39 +33,77 @@ export default function LoginPage() {
         setMfa(true);
         return;
       }
-      router.push("/dashboard");
+      router.push(nextPath);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed");
     }
   }
 
   return (
-    <div className="min-h-screen">
-      <SiteHeader />
-      <form onSubmit={onSubmit} className="glass mx-auto mt-16 w-full max-w-md rounded-3xl p-8">
-        <div className="text-xs tracking-[0.28em] text-[var(--fg-muted)]">ORQELIS</div>
-        <h1 className="mt-2 text-2xl">Login</h1>
-        <label className="mt-6 block text-sm text-[var(--fg-muted)]">Email</label>
-        <input className="mt-2" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
-        <label className="mt-4 block text-sm text-[var(--fg-muted)]">Password</label>
-        <input className="mt-2" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+    <AuthShell
+      title="Sign in to your tenant"
+      panel={
+        <AuthPanel
+          heading="Dashboard access"
+          points={[
+            { title: "Session cookies", body: "Human APIs use secure session cookies. Agent device tokens are separate and never interchangeable." },
+            { title: "Role-aware views", body: "Overview, devices, alerts, incidents, vulnerabilities, AI assist, reports, and billing live behind this login." },
+            { title: "MFA ready", body: "If authenticator MFA is enabled on your account, Orqelis asks for a one-time code after password verification." },
+            { title: "Audit trail", body: "Sensitive actions and approvals are recorded for operator accountability." },
+          ]}
+          next={[
+            { title: "Land on Overview", body: "See the Orqelis score, open findings, and first-run checklist if no agent is enrolled yet." },
+            { title: "Manage endpoints", body: "Create enrollment codes and confirm agents report only listed security telemetry." },
+            { title: "Act on detections", body: "Review alerts/incidents and approve or reject supported remediation actions." },
+          ]}
+        />
+      }
+    >
+      <form onSubmit={onSubmit}>
+        <p className="mb-5 text-sm leading-6 text-[var(--fg-muted)]">
+          Enter your Orqelis credentials to open the customer security console.
+        </p>
+        <label className="block text-sm text-[var(--fg-muted)]" htmlFor="email">
+          Email
+        </label>
+        <input id="email" className="mt-1.5" type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+        <label className="mt-4 block text-sm text-[var(--fg-muted)]" htmlFor="password">
+          Password
+        </label>
+        <input id="password" className="mt-1.5" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required />
         {mfa ? (
           <>
-            <label className="mt-4 block text-sm text-[var(--fg-muted)]">Authenticator code</label>
-            <input className="mt-2" inputMode="numeric" autoComplete="one-time-code" value={totp} onChange={(e) => setTotp(e.target.value)} required />
+            <label className="mt-4 block text-sm text-[var(--fg-muted)]" htmlFor="totp">
+              Authenticator code
+            </label>
+            <input id="totp" className="mt-1.5" inputMode="numeric" autoComplete="one-time-code" value={totp} onChange={(e) => setTotp(e.target.value)} required />
+            <p className="mt-1.5 text-xs text-[var(--fg-muted)]">Open your authenticator app and enter the current 6-digit code.</p>
           </>
         ) : null}
         {error ? <p className="mt-4 text-sm text-[var(--critical)]">{error}</p> : null}
-        <button className="btn btn-primary mt-6 w-full" type="submit">
-          {mfa ? "Verify" : "Enter"}
+        <button className="btn btn-primary mt-5 w-full" type="submit">
+          {mfa ? "Verify and continue" : "Enter dashboard"}
         </button>
-        <p className="mt-4 text-sm text-[var(--fg-muted)]">
-          No account? <Link href="/register">Get started</Link>
-          {" · "}
-          <Link href="/reset-password">Forgot password</Link>
-        </p>
+        <div className="mt-4 flex flex-wrap gap-x-4 gap-y-2 text-sm text-[var(--fg-muted)]">
+          <Link href="/register" className="underline underline-offset-2">
+            Create an account
+          </Link>
+          <Link href="/reset-password" className="underline underline-offset-2">
+            Forgot password
+          </Link>
+          <Link href="/security" className="underline underline-offset-2">
+            Security practices
+          </Link>
+        </div>
       </form>
-      <SiteFooter />
-    </div>
+    </AuthShell>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen" />}>
+      <LoginForm />
+    </Suspense>
   );
 }

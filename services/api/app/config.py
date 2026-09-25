@@ -49,7 +49,25 @@ class Settings(BaseSettings):
     ai_api_key: str = ""
     ai_base_url: str = ""
     ai_model: str = ""
+    ai_model_light: str = ""
+    ai_model_heavy: str = ""
     openai_api_key: str = ""
+
+    scanner_docker_image: str = "orqelis-scanner:latest"
+    scanner_mode: str = "local"  # local (Option A) | remote (Option B) | mock | docker
+    scanner_service_url: str = ""
+    scanner_internal_token: str = ""
+    scan_timeout_total_s: int = 600
+    scan_quota_per_org_monthly: int = 50
+    dns_verify_rate_limit_seconds: int = 30
+    # When true (tests / local), verify accepts matching token without live DNS
+    dns_verify_stub: bool = False
+
+    supabase_url: str = ""
+    supabase_anon_key: str = ""
+    supabase_service_role_key: str = ""
+    next_public_supabase_url: str = ""
+    next_public_supabase_anon_key: str = ""
 
     founder_email: str = ""
     founder_password: str = ""

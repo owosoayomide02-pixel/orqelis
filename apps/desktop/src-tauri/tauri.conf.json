@@ -1,0 +1,46 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Orqelis",
+  "version": "0.1.0",
+  "identifier": "com.orqelis.desktop",
+  "build": {
+    "beforeBuildCommand": "cd ../web && cross-env ORQELIS_STATIC_EXPORT=1 NEXT_PUBLIC_STATIC_EXPORT=1 npm run build",
+    "beforeDevCommand": "cd ../web && cross-env ORQELIS_STATIC_EXPORT=1 NEXT_PUBLIC_STATIC_EXPORT=1 npm run build",
+    "frontendDist": "../web/out",
+    "devUrl": null
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Orqelis",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 960,
+        "minHeight": 640,
+        "resizable": true,
+        "fullscreen": false,
+        "center": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; connect-src 'self' https://api.orqelis.com http://127.0.0.1:8000 http://localhost:8000; img-src 'self' data:; style-src 'self' 'unsafe-inline'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["msi", "nsis"],
+    "icon": ["icons/icon.ico", "icons/icon.png"],
+    "windows": {
+      "digestAlgorithm": "sha256",
+      "certificateThumbprint": null,
+      "timestampUrl": ""
+    }
+  },
+  "plugins": {
+    "updater": {
+      "active": true,
+      "endpoints": ["https://api.orqelis.com/desktop/updates/{{target}}/{{current_version}}"],
+      "pubkey": "REPLACE_WITH_GENERATED_UPDATER_PUBLIC_KEY"
+    }
+  }
+}

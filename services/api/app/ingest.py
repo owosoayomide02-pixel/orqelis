@@ -28,6 +28,8 @@ def event_to_dict(row: SecurityEvent) -> dict[str, Any]:
     return {
         "id": row.id,
         "device_id": row.device_id,
+        "source": row.source,
+        "source_id": row.source_id,
         "organization_id": row.organization_id,
         "category": row.category,
         "event_type": row.event_type,
@@ -58,6 +60,8 @@ async def persist_events(
             id=new_id(),
             organization_id=organization_id,
             device_id=device_id,
+            source="device",
+            source_id=device_id,
             category=str(item.get("category") or "agent_health"),
             event_type=str(item.get("event_type") or item.get("type") or "snapshot"),
             occurred_at=occurred_at,
@@ -67,6 +71,68 @@ async def persist_events(
         rows.append(row)
     await db.flush()
     return rows
+
+
+SEVERITY_RISK = {"info": 5, "informational": 5, "low": 15, "medium": 40, "high": 70, "critical": 90}
+
+
+async def persist_web_findings(
+    db: AsyncSession,
+    *,
+    organization_id: str,
+    web_asset_id: str,
+    domain: str,
+    findings: list[dict[str, Any]],
+) -> tuple[list[SecurityEvent], list[Alert]]:
+    """Insert scan findings as polymorphic events + alerts (same tables as device path)."""
+    events: list[SecurityEvent] = []
+    alerts: list[Alert] = []
+    for finding in findings:
+        severity = str(finding.get("severity") or "medium").lower()
+        if severity == "info":
+            severity = "informational"
+        title = str(finding.get("title") or "Web finding")[:240]
+        payload = {
+            "title": title,
+            "description": finding.get("description") or "",
+            "severity": severity,
+            "tool_source": finding.get("tool_source"),
+            "raw_reference": finding.get("raw_reference") or {},
+            "evidence": finding.get("evidence"),
+            "domain": domain,
+            "web_asset_id": web_asset_id,
+        }
+        event = SecurityEvent(
+            id=new_id(),
+            organization_id=organization_id,
+            device_id=None,
+            source="web_asset",
+            source_id=web_asset_id,
+            category="web_scan",
+            event_type=str(finding.get("tool_source") or "finding"),
+            occurred_at=datetime.now(UTC),
+            payload_json=payload,
+        )
+        db.add(event)
+        events.append(event)
+        alert = Alert(
+            id=new_id(),
+            organization_id=organization_id,
+            device_id=None,
+            title=title,
+            severity=severity if severity != "informational" else "low",
+            confidence=0.7,
+            risk_score=SEVERITY_RISK.get(severity, 40),
+            detection_source="hunter",
+            rule_id=f"web:{finding.get('tool_source') or 'scan'}",
+            evidence_json=payload,
+            recommended_next_step="Review with Analyst or request a Fixer remediation draft.",
+            status="open",
+        )
+        db.add(alert)
+        alerts.append(alert)
+    await db.flush()
+    return events, alerts
 
 
 async def _open_alert(db: AsyncSession, organization_id: str, device_id: str, rule_id: str) -> Alert | None:
@@ -266,6 +332,8 @@ def _gateway() -> AIGateway:
         api_key=settings.resolved_ai_key,
         base_url=settings.ai_base_url,
         model=settings.ai_model,
+        model_light=settings.ai_model_light,
+        model_heavy=settings.ai_model_heavy,
     )
 
 

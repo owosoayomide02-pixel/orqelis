@@ -12,7 +12,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.audit import write_audit
 from app.config import settings
 from app.database import get_db
-from app.deps import COOKIE_NAME, get_current_user, get_session_user
+from app.deps import (
+    COOKIE_NAME,
+    get_current_user,
+    get_session_user,
+    issue_access_token,
+    issue_refresh_token,
+    decode_token,
+)
 from app.emailer import send_email
 from app.mfa import decrypt_secret, encrypt_secret, new_totp_secret, otpauth_url, verify_totp
 from app.models import (
@@ -429,3 +436,91 @@ async def revoke_session(
     row.revoked_at = datetime.now(UTC)
     await db.commit()
     return {"ok": True}
+
+
+class DesktopLoginPayload(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=8, max_length=128)
+    totp: str = Field(default="", max_length=12)
+
+
+class DesktopRefreshPayload(BaseModel):
+    refresh_token: str = Field(min_length=10)
+
+
+@router.post("/desktop-login")
+async def desktop_login(payload: DesktopLoginPayload, request: Request, db: AsyncSession = Depends(get_db)) -> Any:
+    """Desktop shell auth — returns JWT pair (no cookie). Web continues to use cookie login."""
+    ip = _client_ip(request)
+    if not auth_limiter.allow(f"desktop-login:{ip}:{payload.email.lower()}"):
+        raise HTTPException(status_code=429, detail="Too many attempts")
+    email = payload.email.lower()
+    user = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
+    db.add(LoginAttempt(id=new_id(), email=email, ip_address=ip, success=False))
+    if user is None or not verify_password(payload.password, user.password_hash):
+        if user is not None:
+            user.failed_login_count += 1
+            if user.failed_login_count >= 8:
+                user.locked_until = datetime.now(UTC) + timedelta(minutes=15)
+        await db.commit()
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    now = datetime.now(UTC)
+    if user.locked_until and user.locked_until > now:
+        raise HTTPException(status_code=423, detail="Account temporarily locked")
+    if user.mfa_enabled:
+        secret = decrypt_secret(user.mfa_secret_encrypted or "")
+        if not payload.totp:
+            await db.commit()
+            return {"mfa_required": True, "email": user.email}
+        if not verify_totp(secret, payload.totp):
+            user.failed_login_count += 1
+            if user.failed_login_count >= 8:
+                user.locked_until = now + timedelta(minutes=15)
+            await db.commit()
+            raise HTTPException(status_code=401, detail="Invalid authenticator code")
+    user.failed_login_count = 0
+    user.locked_until = None
+    raw = new_secret()
+    session = UserSession(
+        id=new_id(),
+        user_id=user.id,
+        token_hash=hash_secret(raw),
+        user_agent=request.headers.get("user-agent", "")[:400],
+        ip_address=ip,
+        expires_at=now + timedelta(minutes=settings.jwt_expire_minutes),
+    )
+    db.add(session)
+    await write_audit(db, action="auth.desktop_login", actor_type="user", actor_id=user.id, ip_address=ip)
+    await db.commit()
+    membership = (await db.execute(select(Membership).where(Membership.user_id == user.id))).scalars().first()
+    access = issue_access_token(user_id=user.id, session_id=session.id)
+    refresh = issue_refresh_token(user_id=user.id, session_id=session.id)
+    return {
+        **_user_out(user),
+        "mfa_required": False,
+        "organization_id": membership.organization_id if membership else None,
+        "role": membership.role if membership else None,
+        "access_token": access,
+        "refresh_token": refresh,
+        "token_type": "Bearer",
+        "expires_in": min(60, settings.jwt_expire_minutes) * 60,
+    }
+
+
+@router.post("/desktop-refresh")
+async def desktop_refresh(payload: DesktopRefreshPayload, db: AsyncSession = Depends(get_db)) -> dict:
+    claims = decode_token(payload.refresh_token, expect_typ="refresh")
+    session = await db.get(UserSession, claims.get("sid"))
+    if session is None or session.revoked_at is not None or session.user_id != claims.get("sub"):
+        raise HTTPException(status_code=401, detail="Invalid refresh token")
+    expires = session.expires_at
+    if expires.tzinfo is None:
+        expires = expires.replace(tzinfo=UTC)
+    if expires < datetime.now(UTC):
+        raise HTTPException(status_code=401, detail="Session expired")
+    access = issue_access_token(user_id=session.user_id, session_id=session.id)
+    return {
+        "access_token": access,
+        "token_type": "Bearer",
+        "expires_in": min(60, settings.jwt_expire_minutes) * 60,
+    }

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { api } from "@/lib/api";
 
-const ROLES = ["analyst", "sentinel", "fixer"] as const;
+const ROLES = ["sentinel", "hunter", "analyst", "auditor", "fixer"] as const;
 
 type Analysis = {
   id: string;

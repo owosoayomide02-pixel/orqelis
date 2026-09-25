@@ -45,6 +45,16 @@ services:
         value: https://api.groq.com/openai/v1
       - key: AI_MODEL
         value: openai/gpt-oss-20b
+      - key: AI_MODEL_LIGHT
+        value: openai/gpt-oss-20b
+      - key: AI_MODEL_HEAVY
+        value: openai/gpt-oss-20b
+      - key: SCANNER_MODE
+        value: local
+      - key: SCANNER_SERVICE_URL
+        sync: false
+      - key: SCANNER_INTERNAL_TOKEN
+        sync: false
       - key: FOUNDER_EMAIL
         sync: false
       - key: FOUNDER_PASSWORD

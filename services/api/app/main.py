@@ -28,6 +28,7 @@ from app.routers import (
     reports,
     subscription,
     vulnerabilities,
+    web_assets,
 )
 from app.seed import seed_reference_data
 from orqelis_security.passwords import hash_password
@@ -145,6 +146,7 @@ def create_app() -> FastAPI:
     app.include_router(subscription.router)
     app.include_router(demo.router)
     app.include_router(admin.router)
+    app.include_router(web_assets.router)
     return app
 
 

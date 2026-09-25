@@ -14,6 +14,7 @@ export function severityColor(value: string) {
 export const nav = [
   { href: "/dashboard", label: "Overview" },
   { href: "/dashboard/devices", label: "Devices" },
+  { href: "/dashboard/web-assets", label: "Web Assets" },
   { href: "/dashboard/alerts", label: "Alerts" },
   { href: "/dashboard/incidents", label: "Incidents" },
   { href: "/dashboard/vulnerabilities", label: "Vulnerabilities" },

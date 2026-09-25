@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useRef, useState } from "react";
-import { SiteFooter, SiteHeader } from "@/components/SiteChrome";
+import { AuthPanel, AuthShell } from "@/components/SiteChrome";
 import { api } from "@/lib/api";
 
 export default function RegisterPage() {
@@ -41,29 +41,58 @@ export default function RegisterPage() {
   }
 
   return (
-    <div className="min-h-screen">
-      <SiteHeader />
-      <main className="mx-auto w-full max-w-lg px-6">
-        <form onSubmit={onSubmit} className="glass mx-auto mt-12 rounded-3xl p-8">
-          <div className="text-xs tracking-[0.28em] text-[var(--fg-muted)]">ORQELIS</div>
-          <h1 className="mt-2 text-2xl">Get started</h1>
-          <label className="mt-6 block text-sm text-[var(--fg-muted)]" htmlFor="display_name">
-            Name
-          </label>
-          <input id="display_name" className="mt-2" autoComplete="name" value={form.display_name} onChange={(e) => setForm({ ...form, display_name: e.target.value })} />
-          <label className="mt-4 block text-sm text-[var(--fg-muted)]" htmlFor="organization_name">
-            Organization
-          </label>
-          <input id="organization_name" className="mt-2" autoComplete="organization" value={form.organization_name} onChange={(e) => setForm({ ...form, organization_name: e.target.value })} />
-          <label className="mt-4 block text-sm text-[var(--fg-muted)]" htmlFor="email">
-            Email
-          </label>
-          <input id="email" className="mt-2" type="email" autoComplete="email" required value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
-          <label className="mt-4 block text-sm text-[var(--fg-muted)]" htmlFor="password">
-            Password (8+ characters)
-          </label>
-          <input id="password" className="mt-2" type="password" autoComplete="new-password" required minLength={8} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
-          <div className="mt-5 flex items-start gap-3 text-sm text-[var(--fg-muted)]">
+    <AuthShell
+      title="Create your Orqelis account"
+      panel={
+        <AuthPanel
+          heading="Included with signup"
+          points={[
+            { title: "Tenant workspace", body: "Your organization gets an isolated dashboard for devices, alerts, incidents, and posture findings." },
+            { title: "Endpoint enrollment", body: "Generate enrollment codes and install the Windows, macOS, or Linux agent on systems you manage." },
+            { title: "Detection + AI assist", body: "Rules correlate suspicious behavior. AI explains findings and suggests remediation — it does not act alone." },
+            { title: "Human approval", body: "High-impact agent actions wait for an authorized person in your tenant." },
+          ]}
+          next={[
+            { title: "Verify email", body: "Confirm the address you register with (dev environments may show a local verification link)." },
+            { title: "Enroll a device", body: "Open Devices, create a code, install the agent, and bring the first host online." },
+            { title: "Review telemetry", body: "Watch alerts, incidents, and the Orqelis score populate from security telemetry only." },
+          ]}
+        />
+      }
+    >
+      <form onSubmit={onSubmit}>
+        <p className="mb-4 text-sm leading-6 text-[var(--fg-muted)]">
+          Register an organization tenant for endpoint security monitoring. Already have an account?{" "}
+          <Link href="/login" className="text-[var(--fg)] underline underline-offset-2">
+            Log in
+          </Link>
+          .
+        </p>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div>
+            <label className="block text-sm text-[var(--fg-muted)]" htmlFor="display_name">
+              Name
+            </label>
+            <input id="display_name" className="mt-1" autoComplete="name" value={form.display_name} onChange={(e) => setForm({ ...form, display_name: e.target.value })} />
+          </div>
+          <div>
+            <label className="block text-sm text-[var(--fg-muted)]" htmlFor="organization_name">
+              Organization
+            </label>
+            <input id="organization_name" className="mt-1" autoComplete="organization" value={form.organization_name} onChange={(e) => setForm({ ...form, organization_name: e.target.value })} />
+          </div>
+        </div>
+        <label className="mt-3 block text-sm text-[var(--fg-muted)]" htmlFor="email">
+          Work email
+        </label>
+        <input id="email" className="mt-1" type="email" autoComplete="email" required value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+        <label className="mt-3 block text-sm text-[var(--fg-muted)]" htmlFor="password">
+          Password (8+ characters)
+        </label>
+        <input id="password" className="mt-1" type="password" autoComplete="new-password" required minLength={8} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
+        <p className="mt-1 text-xs text-[var(--fg-muted)]">Use a unique password. MFA can be enabled after login from Settings.</p>
+        <div className="mt-3 space-y-2 rounded-xl border border-[var(--line)] p-3 text-sm text-[var(--fg-muted)]">
+          <div className="flex items-start gap-3">
             <input id="accept_terms" type="checkbox" className="mt-1 w-auto shrink-0" checked={form.accept_terms} onChange={(e) => setForm({ ...form, accept_terms: e.target.checked })} required />
             <div>
               <label htmlFor="accept_terms">I agree to the Orqelis Terms of Service.</label>{" "}
@@ -72,7 +101,7 @@ export default function RegisterPage() {
               </Link>
             </div>
           </div>
-          <div className="mt-3 flex items-start gap-3 text-sm text-[var(--fg-muted)]">
+          <div className="flex items-start gap-3">
             <input id="acknowledge_privacy" type="checkbox" className="mt-1 w-auto shrink-0" checked={form.acknowledge_privacy} onChange={(e) => setForm({ ...form, acknowledge_privacy: e.target.checked })} required />
             <div>
               <label htmlFor="acknowledge_privacy">I acknowledge the Orqelis Privacy Policy.</label>{" "}
@@ -81,33 +110,32 @@ export default function RegisterPage() {
               </Link>
             </div>
           </div>
-          <div className="mt-3 flex items-start gap-3 text-sm text-[var(--fg-muted)]">
+          <div className="flex items-start gap-3">
             <input id="marketing_opt_in" type="checkbox" className="mt-1 w-auto shrink-0" checked={form.marketing_opt_in} onChange={(e) => setForm({ ...form, marketing_opt_in: e.target.checked })} />
             <label htmlFor="marketing_opt_in">Send me occasional product updates (optional).</label>
           </div>
-          {error ? (
-            <p className="mt-4 text-sm text-[var(--critical)]" role="alert">
-              {error}
-            </p>
-          ) : null}
-          {verifyUrl ? (
-            <div ref={verifyRef} tabIndex={-1} className="mt-5 rounded-2xl border border-[var(--warning)] p-4 text-sm outline-none" aria-live="polite">
-              <div>Account created. SMTP is unset, so verify with this development link:</div>
-              <a className="mt-2 block break-all text-[var(--brand)]" href={verifyUrl}>
-                {verifyUrl}
-              </a>
-              <button className="btn btn-primary mt-4 w-full" type="button" onClick={() => router.push("/dashboard")}>
-                Continue to dashboard
-              </button>
-            </div>
-          ) : (
-            <button className="btn btn-primary mt-6 w-full" type="submit">
-              Create account
+        </div>
+        {error ? (
+          <p className="mt-4 text-sm text-[var(--critical)]" role="alert">
+            {error}
+          </p>
+        ) : null}
+        {verifyUrl ? (
+          <div ref={verifyRef} tabIndex={-1} className="mt-5 rounded-2xl border border-[var(--warning)] p-4 text-sm outline-none" aria-live="polite">
+            <div>Account created. SMTP is unset, so verify with this development link:</div>
+            <a className="mt-2 block break-all text-[var(--brand)]" href={verifyUrl}>
+              {verifyUrl}
+            </a>
+            <button className="btn btn-primary mt-4 w-full" type="button" onClick={() => router.push("/dashboard")}>
+              Continue to dashboard
             </button>
-          )}
-        </form>
-      </main>
-      <SiteFooter />
-    </div>
+          </div>
+        ) : (
+          <button className="btn btn-primary mt-5 w-full" type="submit">
+            Create account
+          </button>
+        )}
+      </form>
+    </AuthShell>
   );
 }

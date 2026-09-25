@@ -1,0 +1,110 @@
+/* Mirrored from packages/ui/tokens.css for Next/Turbopack (app-local import). */
+:root {
+  --brand: #D85A30;
+  --ai: #4B9FE2;
+  --success: #4BE28A;
+  --warning: #E2A63D;
+  --high: #E24B4A;
+  --critical: #E24B4A;
+  --bg: #0A0B0D;
+  --surface: #14161A;
+  --text: #F2F3F5;
+  --text-muted: #6B7078;
+
+  --surface-0: #0A0B0D;
+  --surface-1: #14161A;
+  --surface-2: #1C1F24;
+  --border: #2A2E35;
+  --border-strong: #3A3F47;
+
+  --text-primary: #F2F3F5;
+  --text-secondary: #A8ADB6;
+
+  --fill-danger: #E24B4A;
+  --bg-danger: #2A1616;
+  --text-danger: #F0817F;
+  --fill-warning: #E2A63D;
+  --bg-warning: #2A2416;
+  --text-warning: #F0C77E;
+  --fill-info: #4B9FE2;
+  --bg-info: #16232A;
+  --text-info: #7FC0F0;
+  --fill-success: #4BE28A;
+  --bg-success: #16291F;
+  --text-success: #7FF0AA;
+
+  --accent: #D85A30;
+  --accent-hover: #E86A3E;
+
+  --font-sans: "IBM Plex Sans", "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", "SF Mono", Consolas, monospace;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+
+  --radius: 8px;
+  --radius-lg: 12px;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --surface-0: #FAFAFA;
+    --surface-1: #FFFFFF;
+    --surface-2: #F2F3F5;
+    --border: #E2E4E8;
+    --text-primary: #14161A;
+    --text-secondary: #4A4F58;
+    --text-muted: #8A8F98;
+    --bg: #FAFAFA;
+    --surface: #FFFFFF;
+    --text: #14161A;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-duration: 0ms;
+  }
+}
+
+@keyframes orqelis-scanline {
+  0% { transform: translateY(-100%); }
+  100% { transform: translateY(400%); }
+}
+
+@keyframes orqelis-fade-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.orqelis-scanline {
+  position: relative;
+  overflow: hidden;
+}
+.orqelis-scanline::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  animation: orqelis-scanline 1.8s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .orqelis-scanline::after { animation: none; display: none; }
+}
+
+.orqelis-finding-enter {
+  animation: orqelis-fade-in 0.35s ease both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .orqelis-finding-enter { animation: none; }
+}
+
+.font-mono-tech {
+  font-family: var(--font-mono);
+}
