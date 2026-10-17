@@ -7,7 +7,20 @@ import json
 import pytest
 
 from app.domain_validation import normalize_domain, validate_domain
-from app.scanner.parsers import parse_httpx_output, parse_nuclei_line, parse_nuclei_output, parse_subfinder_output
+from app.scanner.parsers import (
+    parse_amass_output,
+    parse_dnsx_output,
+    parse_ffuf_output,
+    parse_gobuster_output,
+    parse_httpx_output,
+    parse_nikto_output,
+    parse_nuclei_line,
+    parse_nuclei_output,
+    parse_subfinder_output,
+    parse_testssl_output,
+    parse_whatweb_output,
+    parse_wapiti_output,
+)
 
 
 def test_validate_domain_accepts_public():
@@ -65,3 +78,56 @@ def test_parse_subfinder_volume_finding():
     findings = parse_subfinder_output(lines, "example.com")
     assert len(findings) == 1
     assert findings[0]["tool_source"] == "subfinder"
+
+
+def test_parse_dnsx_records_as_informational_inventory():
+    findings = parse_dnsx_output("example.com [A] [203.0.113.10] [AAAA] [2001:db8::1]\n")
+    assert len(findings) == 1
+    assert findings[0]["severity"] == "info"
+    assert findings[0]["tool_source"] == "dnsx"
+    assert "not a vulnerability" in findings[0]["description"]
+
+
+def test_parse_whatweb_fingerprint_as_informational_inventory():
+    findings = parse_whatweb_output("https://example.com [200 OK] HTTPServer[nginx] Title[Home]\n")
+    assert len(findings) == 1
+    assert findings[0]["severity"] == "info"
+    assert findings[0]["tool_source"] == "whatweb"
+    assert findings[0]["raw_reference"]["plugins"][0]["name"] == "HTTPServer"
+
+
+def test_parse_amass_only_keeps_root_domain_discoveries():
+    findings = parse_amass_output("www.example.com\nevil.test\napi.example.com\n", "example.com")
+    assert len(findings) == 1
+    assert findings[0]["severity"] == "info"
+    assert findings[0]["raw_reference"]["sample"] == ["api.example.com", "www.example.com"]
+
+
+def test_parse_testssl_weak_protocol():
+    findings = parse_testssl_output("TLS 1.0 offered (deprecated)\nTLS 1.3 offered (OK)\n")
+    assert len(findings) == 1
+    assert findings[0]["severity"] == "medium"
+    assert findings[0]["tool_source"] == "testssl.sh"
+
+
+def test_parse_ffuf_and_wapiti_json():
+    ffuf = parse_ffuf_output('{"results":[{"url":"https://example.com/admin","status":200}]}')
+    wapiti = parse_wapiti_output('{"vulnerabilities":{"SQL Injection":[{"level":"2","path":"/login","info":"Review input handling"}]}}')
+    assert ffuf[0]["severity"] == "info"
+    assert ffuf[0]["tool_source"] == "ffuf"
+    assert wapiti[0]["severity"] == "medium"
+    assert wapiti[0]["tool_source"] == "wapiti"
+
+
+def test_parse_gobuster_directory_results():
+    findings = parse_gobuster_output("/admin (Status: 403) [Size: 123]\n")
+    assert len(findings) == 1
+    assert findings[0]["tool_source"] == "gobuster"
+    assert findings[0]["raw_reference"]["status_code"] == 403
+
+
+def test_parse_nikto_json_results():
+    findings = parse_nikto_output('{"vulnerabilities":[{"msg":"X-Frame-Options header missing"}]}')
+    assert len(findings) == 1
+    assert findings[0]["tool_source"] == "nikto"
+    assert "X-Frame-Options" in findings[0]["title"]

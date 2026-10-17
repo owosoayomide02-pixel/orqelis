@@ -23,6 +23,24 @@ def test_cors_includes_app_base_url():
     assert "https://admin.orqelis.example" in s.cors_origin_list
 
 
+def test_public_api_url_defaults_to_railway_in_production():
+    s = Settings(environment="production", public_api_url="", next_public_api_url="")
+    assert s.resolved_public_api_url == "https://orqelis-api-production.up.railway.app"
+
+
+def test_public_api_url_keeps_local_default_and_honors_override():
+    local = Settings(
+        environment="development",
+        api_host="127.0.0.1",
+        api_port=8000,
+        public_api_url="",
+        next_public_api_url="",
+    )
+    configured = Settings(environment="production", public_api_url="https://api.example.test")
+    assert local.resolved_public_api_url == "http://127.0.0.1:8000"
+    assert configured.resolved_public_api_url == "https://api.example.test"
+
+
 def test_production_secrets_reject_placeholders(monkeypatch):
     from app import main as main_mod
 

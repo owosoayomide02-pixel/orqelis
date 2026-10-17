@@ -1,13 +1,53 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-def resolve_ai_provider(*, provider: str, api_key: str, openai_api_key: str = "") -> str:
-    if not (api_key or openai_api_key or "").strip():
+def resolve_ai_provider(
+    *,
+    provider: str,
+    api_key: str,
+    openai_api_key: str = "",
+    gemini_api_key: str = "",
+    openrouter_api_key: str = "",
+    nvidia_api_key: str = "",
+) -> str:
+    if not any(
+        (key or "").strip()
+        for key in (api_key, openai_api_key, gemini_api_key, openrouter_api_key, nvidia_api_key)
+    ):
         return "heuristic"
     name = (provider or "").strip().lower()
     if name in {"", "heuristic"}:
-        return "openai"
+        if (nvidia_api_key or "").strip():
+            return "nvidia"
+        if (openai_api_key or "").strip() or (api_key or "").strip():
+            return "openai"
+        if (openrouter_api_key or "").strip():
+            return "openrouter"
+        return "gemini"
     return name
+
+
+def resolve_ai_key(
+    *,
+    provider: str,
+    api_key: str,
+    openai_api_key: str = "",
+    gemini_api_key: str = "",
+    openrouter_api_key: str = "",
+    nvidia_api_key: str = "",
+) -> str:
+    configured_key = (api_key or "").strip()
+    openai_key = (openai_api_key or "").strip()
+    provider_name = (provider or "").strip().lower()
+    if provider_name == "openai" and openai_key:
+        return openai_key
+    if provider_name == "gemini" and (gemini_api_key or "").strip():
+        return gemini_api_key.strip()
+    if provider_name == "nvidia":
+        return (nvidia_api_key or "").strip() or configured_key
+    if provider_name == "openrouter":
+        return (openrouter_api_key or "").strip()
+    return configured_key or openai_key
 
 
 class Settings(BaseSettings):
@@ -52,13 +92,22 @@ class Settings(BaseSettings):
     ai_model_light: str = ""
     ai_model_heavy: str = ""
     openai_api_key: str = ""
+    gemini_api_key: str = ""
+    openrouter_api_key: str = ""
+    nvidia_api_key: str = ""
 
     scanner_docker_image: str = "orqelis-scanner:latest"
     scanner_mode: str = "local"  # local (Option A) | remote (Option B) | mock | docker
     scanner_service_url: str = ""
     scanner_internal_token: str = ""
+    scanner_enable_ffuf: bool = False
+    scanner_enable_wapiti: bool = False
     scan_timeout_total_s: int = 600
-    scan_quota_per_org_monthly: int = 50
+    # Free allowance for orgs without an active plan; paid tiers are in app/quotas.py
+    scan_quota_per_org_monthly: int = 3
+    web_asset_quota_free: int = 1
+    # Mock scanner only: seconds per simulated tool step so progress is observable
+    scanner_mock_step_delay_s: float = 0.0
     dns_verify_rate_limit_seconds: int = 30
     # When true (tests / local), verify accepts matching token without live DNS
     dns_verify_stub: bool = False
@@ -95,15 +144,23 @@ class Settings(BaseSettings):
 
     @property
     def resolved_public_api_url(self) -> str:
-        return (
-            (self.public_api_url or "").strip()
-            or (self.next_public_api_url or "").strip()
-            or f"http://{self.api_host}:{self.api_port}"
-        )
+        configured_url = (self.public_api_url or "").strip() or (self.next_public_api_url or "").strip()
+        if configured_url:
+            return configured_url
+        if not self.is_development:
+            return "https://orqelis-api-production.up.railway.app"
+        return f"http://{self.api_host}:{self.api_port}"
 
     @property
     def resolved_ai_key(self) -> str:
-        return (self.ai_api_key or self.openai_api_key or "").strip()
+        return resolve_ai_key(
+            provider=self.resolved_ai_provider,
+            api_key=self.ai_api_key,
+            openai_api_key=self.openai_api_key,
+            gemini_api_key=self.gemini_api_key,
+            openrouter_api_key=self.openrouter_api_key,
+            nvidia_api_key=self.nvidia_api_key,
+        )
 
     @property
     def resolved_ai_provider(self) -> str:
@@ -111,7 +168,46 @@ class Settings(BaseSettings):
             provider=self.ai_provider,
             api_key=self.ai_api_key,
             openai_api_key=self.openai_api_key,
+            gemini_api_key=self.gemini_api_key,
+            openrouter_api_key=self.openrouter_api_key,
+            nvidia_api_key=self.nvidia_api_key,
         )
+
+    @property
+    def resolved_ai_fallback_provider(self) -> str:
+        if self.resolved_ai_provider == "nvidia":
+            if self.openrouter_api_key.strip():
+                return "openrouter"
+            if self.openai_api_key.strip():
+                return "openai"
+            if self.gemini_api_key.strip():
+                return "gemini"
+        if self.resolved_ai_provider == "openai" and self.gemini_api_key.strip():
+            return "gemini"
+        if self.resolved_ai_provider == "openai" and self.openrouter_api_key.strip():
+            return "openrouter"
+        if self.resolved_ai_provider == "gemini" and self.openai_api_key.strip():
+            return "openai"
+        if self.resolved_ai_provider == "openrouter":
+            if self.openai_api_key.strip():
+                return "openai"
+            if self.gemini_api_key.strip():
+                return "gemini"
+        return ""
+
+    @property
+    def resolved_ai_fallback_key(self) -> str:
+        if self.resolved_ai_fallback_provider == "openrouter":
+            return self.openrouter_api_key.strip()
+        if self.resolved_ai_fallback_provider == "nvidia":
+            return self.nvidia_api_key.strip()
+        if self.resolved_ai_fallback_provider == "gemini":
+            return self.gemini_api_key.strip()
+        if self.resolved_ai_fallback_provider == "openai":
+            return self.openai_api_key.strip()
+        if self.resolved_ai_fallback_provider == "openrouter":
+            return self.openrouter_api_key.strip()
+        return ""
 
 
 settings = Settings()

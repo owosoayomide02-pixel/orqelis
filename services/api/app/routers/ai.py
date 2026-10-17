@@ -24,6 +24,8 @@ def _gateway() -> AIGateway:
         model=settings.ai_model,
         model_light=settings.ai_model_light,
         model_heavy=settings.ai_model_heavy,
+        fallback_provider=settings.resolved_ai_fallback_provider,
+        fallback_api_key=settings.resolved_ai_fallback_key,
     )
 
 

@@ -72,13 +72,16 @@ def compute_score(
     vulnerabilities: list[Vulnerability],
     now: datetime | None = None,
 ) -> dict[str, Any]:
-    now = now or datetime.now(UTC)
     active_devices = [d for d in devices if d.revoked_at is None]
-    if not active_devices:
+    open_alerts = [a for a in alerts if a.status == "open"]
+    open_incidents = [i for i in incidents if i.status in {"open", "investigating"}]
+    open_vulns = [v for v in vulnerabilities if v.status == "open"]
+
+    if not active_devices and not open_alerts and not open_incidents and not open_vulns:
         return {
             "score": None,
             "first_run": True,
-            "summary": "Enroll an authorized device before Orqelis can calculate a security score.",
+            "summary": "Add a domain or web asset to start external security scanning.",
             "drivers": [],
             "counts": {"devices": 0, "alerts_open": 0, "incidents_open": 0, "vulnerabilities_open": 0},
         }
@@ -137,3 +140,23 @@ def compute_score(
             "vulnerabilities_open": len(open_vulns),
         },
     }
+
+
+WEB_EXTRA_WEIGHT = {"critical": 5, "high": 3, "medium": 1, "low": 0}
+
+
+def compute_web_risk(*, alerts: list[Alert], scanned: bool) -> dict[str, Any]:
+    """Exposure risk for a web asset: 0 (clean) to 100 (severe). None until a scan has completed.
+
+    The worst open finding sets the floor; each additional finding adds a small, severity-weighted bump.
+    """
+    open_alerts = [a for a in alerts if a.status == "open"]
+    by_severity = {sev: sum(1 for a in open_alerts if a.severity == sev) for sev in ("critical", "high", "medium", "low")}
+    if not scanned:
+        return {"risk_score": None, "open_findings": len(open_alerts), "by_severity": by_severity}
+    if not open_alerts:
+        return {"risk_score": 0, "open_findings": 0, "by_severity": by_severity}
+    ranked = sorted(open_alerts, key=lambda a: a.risk_score or 0, reverse=True)
+    score = ranked[0].risk_score or 0
+    score += sum(WEB_EXTRA_WEIGHT.get(a.severity, 0) for a in ranked[1:])
+    return {"risk_score": max(0, min(100, score)), "open_findings": len(open_alerts), "by_severity": by_severity}

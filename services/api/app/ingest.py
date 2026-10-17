@@ -286,7 +286,7 @@ async def store_analysis(
     subject_id: str,
     payload: dict[str, Any],
 ) -> AIAnalysis:
-    result = gateway.analyze(role=role, subject_type=subject_type, payload=payload)
+    result = await gateway.async_analyze(role=role, subject_type=subject_type, payload=payload)
     row = AIAnalysis(
         id=new_id(),
         organization_id=organization_id,
@@ -334,6 +334,8 @@ def _gateway() -> AIGateway:
         model=settings.ai_model,
         model_light=settings.ai_model_light,
         model_heavy=settings.ai_model_heavy,
+        fallback_provider=settings.resolved_ai_fallback_provider,
+        fallback_api_key=settings.resolved_ai_fallback_key,
     )
 
 

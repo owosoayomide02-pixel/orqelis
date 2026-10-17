@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import secrets
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, Request, UploadFile
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.audit import write_audit
@@ -26,14 +29,23 @@ from app.models import (
     ScanJob,
     SecurityEvent,
     User,
+    WebAssetEvidence,
     WebAsset,
     new_id,
 )
+from app.quotas import monthly_scan_count, org_limits, usage, web_asset_count
 from app.scanner import execute_scan, normalize_raw
+from app.scoring import compute_web_risk
 from orqelis_ai.gateway import AIGateway
 
 log = logging.getLogger("orqelis.web_assets")
 router = APIRouter(prefix="/api/v1", tags=["web-assets"])
+MAX_EVIDENCE_BYTES = 800_000
+IMAGE_SIGNATURES = {
+    "image/png": (b"\x89PNG\r\n\x1a\n",),
+    "image/jpeg": (b"\xff\xd8\xff",),
+    "image/webp": (b"RIFF",),
+}
 
 
 def _gateway(role: str = "analyst") -> AIGateway:
@@ -44,6 +56,8 @@ def _gateway(role: str = "analyst") -> AIGateway:
         model=settings.ai_model,
         model_light=settings.ai_model_light,
         model_heavy=settings.ai_model_heavy,
+        fallback_provider=settings.resolved_ai_fallback_provider,
+        fallback_api_key=settings.resolved_ai_fallback_key,
     )
 
 
@@ -55,7 +69,9 @@ def _verification_instructions(asset: WebAsset) -> dict[str, str]:
     }
 
 
-def _asset_out(asset: WebAsset, *, include_instructions: bool = False) -> dict[str, Any]:
+def _asset_out(
+    asset: WebAsset, *, include_instructions: bool = False, summary: dict[str, Any] | None = None
+) -> dict[str, Any]:
     data: dict[str, Any] = {
         "id": asset.id,
         "domain": asset.domain,
@@ -65,9 +81,80 @@ def _asset_out(asset: WebAsset, *, include_instructions: bool = False) -> dict[s
         "created_at": asset.created_at.isoformat() if asset.created_at else None,
         "archived": asset.archived,
     }
+    if summary is not None:
+        data.update(summary)
     if include_instructions or asset.verification_status != "verified":
         data["verification_instructions"] = _verification_instructions(asset)
     return data
+
+
+async def _web_alerts_by_asset(db: AsyncSession, organization_id: str) -> dict[str, list[Alert]]:
+    rows = (
+        await db.execute(
+            select(Alert)
+            .where(
+                Alert.organization_id == organization_id,
+                Alert.device_id.is_(None),
+                Alert.detection_source == "hunter",
+            )
+            .order_by(Alert.created_at.desc())
+        )
+    ).scalars().all()
+    grouped: dict[str, list[Alert]] = {}
+    for row in rows:
+        asset_id = (row.evidence_json or {}).get("web_asset_id")
+        if asset_id:
+            grouped.setdefault(asset_id, []).append(row)
+    return grouped
+
+
+async def _asset_summaries(db: AsyncSession, organization_id: str, assets: list[WebAsset]) -> dict[str, dict[str, Any]]:
+    """Risk score, open findings, and last scan for each asset, computed in two queries."""
+    if not assets:
+        return {}
+    alerts = await _web_alerts_by_asset(db, organization_id)
+    scans = (
+        await db.execute(
+            select(ScanJob)
+            .where(ScanJob.organization_id == organization_id, ScanJob.web_asset_id.in_([a.id for a in assets]))
+            .order_by(ScanJob.created_at.desc())
+        )
+    ).scalars().all()
+    last_scan: dict[str, ScanJob] = {}
+    completed: set[str] = set()
+    for job in scans:
+        last_scan.setdefault(job.web_asset_id, job)
+        if job.status == "completed":
+            completed.add(job.web_asset_id)
+    out: dict[str, dict[str, Any]] = {}
+    for asset in assets:
+        risk = compute_web_risk(alerts=alerts.get(asset.id, []), scanned=asset.id in completed)
+        job = last_scan.get(asset.id)
+        by_sev = risk.get("by_severity") or {}
+        if asset.id not in completed:
+            health = "unscanned"
+        elif by_sev.get("critical", 0) > 0 or by_sev.get("high", 0) > 0:
+            health = "critical"
+        elif by_sev.get("medium", 0) > 0:
+            health = "degraded"
+        else:
+            health = "healthy"
+        out[asset.id] = {
+            **risk,
+            "health_status": health,
+            "has_completed_scan": asset.id in completed,
+            "last_scan": (
+                {
+                    "id": job.id,
+                    "status": job.status,
+                    "created_at": job.created_at.isoformat() if job.created_at else None,
+                    "completed_at": job.completed_at.isoformat() if job.completed_at else None,
+                }
+                if job
+                else None
+            ),
+        }
+    return out
 
 
 def _client_ip(request: Request) -> str:
@@ -105,7 +192,47 @@ async def list_web_assets(
             .order_by(WebAsset.created_at.desc())
         )
     ).scalars().all()
-    return [_asset_out(row) for row in rows]
+    summaries = await _asset_summaries(db, membership.organization_id, list(rows))
+    return [_asset_out(row, summary=summaries.get(row.id)) for row in rows]
+
+
+@router.get("/web-assets/usage")
+async def web_asset_usage(
+    db: AsyncSession = Depends(get_db),
+    membership: Membership = Depends(get_membership),
+) -> dict:
+    return await usage(db, membership.organization_id)
+
+
+@router.get("/web-assets/risk-summary")
+async def web_risk_summary(
+    db: AsyncSession = Depends(get_db),
+    membership: Membership = Depends(get_membership),
+) -> dict:
+    """Org-wide web exposure: the worst scanned asset sets the headline number."""
+    rows = (
+        await db.execute(
+            select(WebAsset).where(
+                WebAsset.organization_id == membership.organization_id, WebAsset.archived.is_(False)
+            )
+        )
+    ).scalars().all()
+    summaries = await _asset_summaries(db, membership.organization_id, list(rows))
+    scored = [(row, summaries[row.id]) for row in rows if summaries[row.id]["risk_score"] is not None]
+    worst = max(scored, key=lambda item: item[1]["risk_score"], default=None)
+    by_severity = {sev: 0 for sev in ("critical", "high", "medium", "low")}
+    for summary in summaries.values():
+        for sev, count in summary["by_severity"].items():
+            by_severity[sev] += count
+    return {
+        "risk_score": worst[1]["risk_score"] if worst else None,
+        "worst_asset": {"id": worst[0].id, "domain": worst[0].domain} if worst else None,
+        "assets_total": len(rows),
+        "assets_verified": sum(1 for r in rows if r.verification_status == "verified"),
+        "assets_scanned": len(scored),
+        "open_findings": sum(s["open_findings"] for s in summaries.values()),
+        "by_severity": by_severity,
+    }
 
 
 @router.post("/web-assets", status_code=201)
@@ -161,6 +288,14 @@ async def create_web_asset(
         # Idempotent create — return existing (spec: 409 own-org returns existing)
         return _asset_out(existing, include_instructions=True)
 
+    limits = await org_limits(db, membership.organization_id)
+    asset_limit = limits["web_assets"]
+    if asset_limit is not None and await web_asset_count(db, membership.organization_id) >= asset_limit:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Web asset limit reached ({asset_limit} on {limits['plan_name']}). Upgrade your plan to add more domains.",
+        )
+
     token = secrets.token_hex(16)
     asset = WebAsset(
         id=new_id(),
@@ -194,7 +329,8 @@ async def get_web_asset(
     membership: Membership = Depends(get_membership),
 ) -> dict:
     asset = await _get_asset(db, asset_id, membership.organization_id)
-    return _asset_out(asset, include_instructions=True)
+    summaries = await _asset_summaries(db, membership.organization_id, [asset])
+    return _asset_out(asset, include_instructions=True, summary=summaries[asset.id])
 
 
 async def _lookup_txt(name: str) -> list[str]:
@@ -242,8 +378,11 @@ async def verify_web_asset(
 ) -> dict:
     asset = await _get_asset(db, asset_id, membership.organization_id)
     now = datetime.now(UTC)
-    if asset.last_verify_attempt_at:
-        elapsed = (now - asset.last_verify_attempt_at).total_seconds()
+    last_attempt = asset.last_verify_attempt_at
+    if last_attempt:
+        if last_attempt.tzinfo is None:
+            last_attempt = last_attempt.replace(tzinfo=UTC)
+        elapsed = (now - last_attempt).total_seconds()
         if elapsed < settings.dns_verify_rate_limit_seconds:
             raise HTTPException(
                 status_code=429,
@@ -290,20 +429,6 @@ async def verify_web_asset(
     }
 
 
-async def _monthly_scan_count(db: AsyncSession, organization_id: str) -> int:
-    since = datetime.now(UTC) - timedelta(days=30)
-    return int(
-        (
-            await db.execute(
-                select(func.count())
-                .select_from(ScanJob)
-                .where(ScanJob.organization_id == organization_id, ScanJob.created_at >= since)
-            )
-        ).scalar_one()
-        or 0
-    )
-
-
 async def _run_scan_job(job_id: str) -> None:
     async with SessionLocal() as db:
         job = await db.get(ScanJob, job_id)
@@ -321,10 +446,15 @@ async def _run_scan_job(job_id: str) -> None:
         job.current_tool = "subfinder"
         await db.commit()
 
+        async def on_tool(tool: str) -> None:
+            job.current_tool = tool
+            await db.commit()
+
         try:
-            result = await execute_scan(asset.domain)
+            result = await execute_scan(asset.domain, on_tool=on_tool)
             raw = result.get("raw_output") or {}
             tools = result.get("tools_run") or []
+            tools_skipped = result.get("tools_skipped") or []
             status = result.get("status") or "completed"
             errors = result.get("errors") or []
             preparsed = result.get("findings") if isinstance(result.get("findings"), list) else None
@@ -337,7 +467,10 @@ async def _run_scan_job(job_id: str) -> None:
                 findings=findings,
             )
             job.tools_run = tools
-            job.raw_output = {k: (v[:50000] if isinstance(v, str) else v) for k, v in raw.items()}
+            job.raw_output = {
+                "_tools_skipped": tools_skipped,
+                **{k: (v[:50000] if isinstance(v, str) else v) for k, v in raw.items()},
+            }
             job.findings_count = len(findings)
             job.status = status if status in {"completed", "failed", "timed_out"} else "completed"
             err_msg = result.get("error_message")
@@ -432,9 +565,13 @@ async def start_scan(
     if running is not None:
         raise HTTPException(status_code=429, detail="A scan is already running for this asset")
 
-    used = await _monthly_scan_count(db, membership.organization_id)
-    if used >= settings.scan_quota_per_org_monthly:
-        raise HTTPException(status_code=429, detail="Organization monthly scan quota exceeded")
+    limits = await org_limits(db, membership.organization_id)
+    scan_limit = limits["scans_monthly"]
+    if scan_limit is not None and await monthly_scan_count(db, membership.organization_id) >= scan_limit:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Monthly scan quota exceeded ({scan_limit} per 30 days on {limits['plan_name']}). Upgrade your plan for more scans.",
+        )
 
     job = ScanJob(
         id=new_id(),
@@ -476,6 +613,7 @@ async def get_scan_status(
         "id": job.id,
         "status": job.status,
         "tools_run": job.tools_run or [],
+        "tools_skipped": (job.raw_output or {}).get("_tools_skipped", []),
         "current_tool": job.current_tool,
         "findings_count": job.findings_count,
         "error_message": job.error_message,
@@ -504,6 +642,7 @@ async def list_scans(
             "id": row.id,
             "status": row.status,
             "tools_run": row.tools_run or [],
+            "tools_skipped": (row.raw_output or {}).get("_tools_skipped", []),
             "findings_count": row.findings_count,
             "created_at": row.created_at.isoformat() if row.created_at else None,
             "completed_at": row.completed_at.isoformat() if row.completed_at else None,
@@ -520,20 +659,10 @@ async def list_findings(
     membership: Membership = Depends(get_membership),
 ) -> list[dict]:
     await _get_asset(db, asset_id, membership.organization_id)
-    # Prefer alerts created from hunter for this asset
-    alerts = (
-        await db.execute(
-            select(Alert)
-            .where(Alert.organization_id == membership.organization_id)
-            .order_by(Alert.created_at.desc())
-            .limit(limit * 2)
-        )
-    ).scalars().all()
+    alerts = (await _web_alerts_by_asset(db, membership.organization_id)).get(asset_id, [])
     out = []
     for row in alerts:
         evidence = row.evidence_json or {}
-        if evidence.get("web_asset_id") != asset_id:
-            continue
         out.append(
             {
                 "id": row.id,
@@ -541,6 +670,7 @@ async def list_findings(
                 "source_id": asset_id,
                 "title": row.title,
                 "severity": row.severity,
+                "tool_source": evidence.get("tool_source"),
                 "confidence": row.confidence,
                 "risk_score": row.risk_score,
                 "detection_source": row.detection_source,
@@ -582,6 +712,135 @@ async def list_findings(
     ]
 
 
+@router.post("/web-assets/{asset_id}/evidence", status_code=201)
+async def upload_asset_evidence(
+    asset_id: str,
+    request: Request,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    membership: Membership = Depends(require_rank("SECURITY_ANALYST")),
+    user: User = Depends(get_current_user),
+) -> dict:
+    asset = await _get_asset(db, asset_id, membership.organization_id)
+    content_type = (file.content_type or "").lower()
+    signatures = IMAGE_SIGNATURES.get(content_type)
+    if signatures is None:
+        raise HTTPException(status_code=415, detail="Upload a PNG, JPEG, or WebP image")
+    content = await file.read(MAX_EVIDENCE_BYTES + 1)
+    if len(content) > MAX_EVIDENCE_BYTES:
+        raise HTTPException(status_code=413, detail="Evidence images must be 800 KB or smaller")
+    valid_signature = content.startswith(signatures[0])
+    if content_type == "image/webp":
+        valid_signature = valid_signature and len(content) >= 12 and content[8:12] == b"WEBP"
+    if not valid_signature:
+        raise HTTPException(status_code=415, detail="Image content does not match its declared type")
+
+    digest = hashlib.sha256(content).hexdigest()
+    row = WebAssetEvidence(
+        id=new_id(),
+        organization_id=membership.organization_id,
+        web_asset_id=asset.id,
+        uploaded_by_user_id=user.id,
+        filename=Path(file.filename or "evidence").name[:255],
+        content_type=content_type,
+        byte_size=len(content),
+        sha256=digest,
+        content=content,
+        created_at=datetime.now(UTC),
+    )
+    db.add(row)
+    await write_audit(
+        db,
+        action="web_asset.evidence_upload",
+        actor_id=user.id,
+        organization_id=membership.organization_id,
+        resource_type="web_asset_evidence",
+        resource_id=row.id,
+        details={"web_asset_id": asset.id, "sha256": digest, "byte_size": len(content), "content_type": content_type},
+        ip_address=_client_ip(request),
+    )
+    await db.commit()
+    return {
+        "id": row.id,
+        "web_asset_id": asset.id,
+        "filename": row.filename,
+        "content_type": row.content_type,
+        "byte_size": row.byte_size,
+        "sha256": row.sha256,
+        "created_at": row.created_at.isoformat(),
+    }
+
+
+@router.get("/web-assets/{asset_id}/evidence")
+async def list_asset_evidence(
+    asset_id: str,
+    db: AsyncSession = Depends(get_db),
+    membership: Membership = Depends(get_membership),
+) -> list[dict]:
+    asset = await _get_asset(db, asset_id, membership.organization_id)
+    rows = (
+        await db.execute(
+            select(WebAssetEvidence)
+            .where(
+                WebAssetEvidence.web_asset_id == asset.id,
+                WebAssetEvidence.organization_id == membership.organization_id,
+            )
+            .order_by(WebAssetEvidence.created_at.desc())
+            .limit(100)
+        )
+    ).scalars().all()
+    return [
+        {
+            "id": row.id,
+            "filename": row.filename,
+            "content_type": row.content_type,
+            "byte_size": row.byte_size,
+            "sha256": row.sha256,
+            "created_at": row.created_at.isoformat(),
+        }
+        for row in rows
+    ]
+
+
+@router.get("/web-assets/{asset_id}/evidence/{evidence_id}")
+async def get_asset_evidence_image(
+    asset_id: str,
+    evidence_id: str,
+    db: AsyncSession = Depends(get_db),
+    membership: Membership = Depends(get_membership),
+) -> Response:
+    asset = await _get_asset(db, asset_id, membership.organization_id)
+    row = await db.get(WebAssetEvidence, evidence_id)
+    if row is None or row.organization_id != membership.organization_id or row.web_asset_id != asset.id:
+        raise HTTPException(status_code=404, detail="Evidence not found")
+    return Response(
+        content=row.content,
+        media_type=row.content_type,
+        headers={"Content-Disposition": "inline", "Cache-Control": "private, no-store"},
+    )
+
+
+CONFIDENCE_WORDS = {"very high": 0.95, "high": 0.85, "medium": 0.6, "moderate": 0.6, "low": 0.3, "very low": 0.15}
+
+
+def _confidence(value: object) -> float:
+    """LLMs return confidence as 0–1, 0–100, "85%", or words like "High"."""
+    if isinstance(value, str):
+        text = value.strip().lower()
+        if text in CONFIDENCE_WORDS:
+            return CONFIDENCE_WORDS[text]
+        try:
+            value = float(text.rstrip("%"))
+        except ValueError:
+            return 0.5
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return 0.5
+    score = float(value)
+    if score > 1:
+        score /= 100
+    return max(0.0, min(1.0, score))
+
+
 @router.post("/findings/{finding_id}/analyze")
 async def analyze_finding(
     finding_id: str,
@@ -620,7 +879,7 @@ async def analyze_finding(
     return {
         "explanation": output.get("explanation") or output.get("summary") or "Analysis unavailable",
         "severity_assessment": output.get("severity_assessment") or output.get("priority") or alert.severity,
-        "confidence": float(output.get("confidence") or 0.5),
+        "confidence": _confidence(output.get("confidence")),
         "analysis_id": analysis.id,
         "auto_detected": False,
     }

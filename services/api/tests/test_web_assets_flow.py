@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 
 import pytest
 from httpx import AsyncClient
@@ -11,7 +12,11 @@ from tests.conftest import register
 
 
 @pytest.mark.asyncio
-async def test_web_asset_scan_flow(client: AsyncClient):
+async def test_web_asset_scan_flow(client: AsyncClient, monkeypatch):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "scanner_enable_ffuf", False)
+    monkeypatch.setattr(settings, "scanner_enable_wapiti", False)
     await register(client, "webscan@example.com", org="ScanCo")
 
     # Invalid domain
@@ -96,6 +101,7 @@ async def test_web_asset_scan_flow(client: AsyncClient):
                 break
             await asyncio.sleep(0.05)
     assert status == "completed", body
+    assert body["tools_skipped"] == ["ffuf", "wapiti"]
 
     findings = await client.get(f"/api/v1/web-assets/{asset_id}/findings")
     assert findings.status_code == 200
@@ -146,3 +152,41 @@ async def test_desktop_login_bearer(client: AsyncClient):
     )
     assert refreshed.status_code == 200
     assert refreshed.json()["access_token"]
+
+
+@pytest.mark.asyncio
+async def test_web_asset_evidence_is_hashed_and_tenant_scoped(client: AsyncClient):
+    await register(client, "evidence-owner@example.com", org="Evidence Owner")
+    created = await client.post("/api/v1/web-assets", json={"domain": "evidence-owner.example"})
+    assert created.status_code == 201
+    asset_id = created.json()["id"]
+
+    image = b"\x89PNG\r\n\x1a\n" + b"test-image-content"
+    uploaded = await client.post(
+        f"/api/v1/web-assets/{asset_id}/evidence",
+        files={"file": ("scope.png", image, "image/png")},
+    )
+    assert uploaded.status_code == 201, uploaded.text
+    metadata = uploaded.json()
+    assert metadata["sha256"] == hashlib.sha256(image).hexdigest()
+    assert metadata["byte_size"] == len(image)
+    assert metadata["created_at"]
+
+    image_response = await client.get(f"/api/v1/web-assets/{asset_id}/evidence/{metadata['id']}")
+    assert image_response.status_code == 200
+    assert image_response.content == image
+    assert image_response.headers["cache-control"] == "private, no-store"
+
+    rejected = await client.post(
+        f"/api/v1/web-assets/{asset_id}/evidence",
+        files={"file": ("notes.txt", b"not an image", "text/plain")},
+    )
+    assert rejected.status_code == 415
+
+    owner_cookies = [(cookie.name, cookie.value) for cookie in client.cookies.jar]
+    await register(client, "evidence-other@example.com", org="Other Tenant")
+    forbidden = await client.get(f"/api/v1/web-assets/{asset_id}/evidence")
+    assert forbidden.status_code == 404
+    client.cookies.clear()
+    for name, value in owner_cookies:
+        client.cookies.set(name, value)

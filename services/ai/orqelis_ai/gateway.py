@@ -86,11 +86,28 @@ class AIGateway:
         model: str = "",
         model_light: str = "",
         model_heavy: str = "",
+        fallback_provider: str = "",
+        fallback_api_key: str = "",
+        fallback_model: str = "",
     ) -> None:
         self.provider = provider or "heuristic"
         self.api_key = api_key
+        self.fallback_provider = fallback_provider
+        self.fallback_api_key = fallback_api_key
+        self.fallback_model = fallback_model
         self.base_url = base_url.rstrip("/") if base_url else ""
-        self.model = model or "gpt-4o-mini"
+        provider_name = self.provider.lower()
+        if provider_name == "anthropic":
+            default_model = ""
+        elif provider_name == "gemini":
+            default_model = "gemini-2.5-flash"
+        elif provider_name == "openrouter":
+            default_model = "openai/gpt-4o-mini"
+        elif provider_name == "nvidia":
+            default_model = "meta/llama-3.3-70b-instruct"
+        else:
+            default_model = "gpt-4o-mini"
+        self.model = model or default_model
         self.model_light = model_light or os.environ.get("AI_MODEL_LIGHT", "") or self.model
         self.model_heavy = model_heavy or os.environ.get("AI_MODEL_HEAVY", "") or self.model
 
@@ -111,18 +128,66 @@ class AIGateway:
         if role_key not in ROLE_PROMPTS:
             role_key = "analyst"
         if not self.api_key:
-            return self._heuristic(role_key, subject_type, redacted)
+            if not self.fallback_provider or not self.fallback_api_key:
+                return self._heuristic(role_key, subject_type, redacted)
+            fallback = AIGateway(
+                provider=self.fallback_provider,
+                api_key=self.fallback_api_key,
+                model=self.fallback_model,
+            )
+            result = fallback.analyze(role=role_key, subject_type=subject_type, payload=redacted)
+            result.output["provider_fallback"] = f"{self.provider} -> {fallback.provider}"
+            return result
         try:
-            return self._openai_compatible(role_key, subject_type, redacted, retry_fix=False)
+            return self._request_provider(self.provider, role_key, subject_type, redacted, retry_fix=False)
         except Exception as exc:
             try:
-                return self._openai_compatible(role_key, subject_type, redacted, retry_fix=True)
-            except Exception:
+                return self._request_provider(self.provider, role_key, subject_type, redacted, retry_fix=True)
+            except Exception as retry_error:
+                if self.fallback_provider and self.fallback_api_key:
+                    try:
+                        fallback = AIGateway(
+                            provider=self.fallback_provider,
+                            api_key=self.fallback_api_key,
+                            model=self.fallback_model,
+                        )
+                        result = fallback._request_provider(
+                            fallback.provider, role_key, subject_type, redacted, retry_fix=False
+                        )
+                        result.output["provider_fallback"] = f"{self.provider} -> {fallback.provider}"
+                        return result
+                    except Exception as fallback_error:
+                        retry_error = fallback_error
                 fallback = self._heuristic(role_key, subject_type, redacted)
-                fallback.output["provider_error"] = str(exc)[:300]
+                error_text = str(retry_error or exc)
+                for secret in (self.api_key, self.fallback_api_key):
+                    if secret:
+                        error_text = error_text.replace(secret, "[redacted]")
+                fallback.output["provider_error"] = error_text[:300]
                 fallback.output["fallback"] = True
                 fallback.output["analysis_unavailable"] = True
                 return fallback
+
+    def _request_provider(
+        self,
+        provider: str,
+        role: str,
+        subject_type: str,
+        payload: dict[str, Any],
+        *,
+        retry_fix: bool,
+    ) -> AnalysisResult:
+        name = provider.lower()
+        if name == "anthropic":
+            return self._anthropic(role, subject_type, payload, retry_fix=retry_fix)
+        if name == "gemini":
+            return self._gemini(role, subject_type, payload, retry_fix=retry_fix)
+        return self._openai_compatible(role, subject_type, payload, retry_fix=retry_fix)
+
+    async def async_analyze(self, *, role: str, subject_type: str, payload: dict[str, Any]) -> AnalysisResult:
+        import asyncio
+
+        return await asyncio.to_thread(self.analyze, role=role, subject_type=subject_type, payload=payload)
 
     def _validate(self, parsed: dict[str, Any]) -> dict[str, Any]:
         try:
@@ -216,7 +281,14 @@ class AIGateway:
         *,
         retry_fix: bool,
     ) -> AnalysisResult:
-        url = self.base_url or "https://api.openai.com/v1"
+        if self.base_url:
+            url = self.base_url
+        elif self.provider.lower() == "openrouter":
+            url = "https://openrouter.ai/api/v1"
+        elif self.provider.lower() == "nvidia":
+            url = "https://integrate.api.nvidia.com/v1"
+        else:
+            url = "https://api.openai.com/v1"
         model = self.model_for_role(role)
         system = ROLE_PROMPTS[role]
         if retry_fix:
@@ -242,6 +314,9 @@ class AIGateway:
             ],
         }
         headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
+        if self.provider.lower() == "openrouter":
+            headers["HTTP-Referer"] = os.environ.get("APP_BASE_URL", "https://orqelis.com")
+            headers["X-Title"] = "Orqelis"
         with httpx.Client(timeout=45.0) as client:
             response = client.post(f"{url}/chat/completions", headers=headers, json=body)
             if response.status_code >= 400:
@@ -263,4 +338,120 @@ class AIGateway:
             output=validated,
             prompt_tokens=int(usage.get("prompt_tokens") or 0),
             completion_tokens=int(usage.get("completion_tokens") or 0),
+        )
+
+    def _gemini(
+        self,
+        role: str,
+        subject_type: str,
+        payload: dict[str, Any],
+        *,
+        retry_fix: bool,
+    ) -> AnalysisResult:
+        model = self.model_for_role(role)
+        system = ROLE_PROMPTS[role] + " Return ONLY one valid JSON object without markdown fences."
+        if retry_fix:
+            system += " Your previous response was invalid; strictly return the requested JSON object."
+        body = {
+            "system_instruction": {"parts": [{"text": system}]},
+            "contents": [
+                {
+                    "role": "user",
+                    "parts": [
+                        {
+                            "text": (
+                                f"Subject type: {subject_type}\n"
+                                "Use only this redacted authorized security data. "
+                                "Do not perform or suggest unauthorized access.\n"
+                                + json.dumps(payload)[:12000]
+                            )
+                        }
+                    ],
+                }
+            ],
+            "generationConfig": {"temperature": 0.1, "responseMimeType": "application/json"},
+        }
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+        headers = {"x-goog-api-key": self.api_key, "content-type": "application/json"}
+        with httpx.Client(timeout=45.0) as client:
+            response = client.post(url, headers=headers, json=body)
+            response.raise_for_status()
+            data = response.json()
+        candidates = data.get("candidates") or []
+        parts = candidates[0].get("content", {}).get("parts", []) if candidates else []
+        content = "\n".join(str(part.get("text") or "") for part in parts if isinstance(part, dict))
+        parsed = _parse_model_json(content)
+        if "explanation" not in parsed:
+            if not retry_fix:
+                return self._gemini(role, subject_type, payload, retry_fix=True)
+            raise ValueError("Gemini returned invalid JSON schema")
+        validated = self._validate(parsed)
+        usage = data.get("usageMetadata") or {}
+        return AnalysisResult(
+            provider="gemini",
+            model=model,
+            output=validated,
+            prompt_tokens=int(usage.get("promptTokenCount") or 0),
+            completion_tokens=int(usage.get("candidatesTokenCount") or 0),
+        )
+
+    def _anthropic(
+        self,
+        role: str,
+        subject_type: str,
+        payload: dict[str, Any],
+        *,
+        retry_fix: bool,
+    ) -> AnalysisResult:
+        model = self.model_for_role(role)
+        if not model:
+            raise ValueError("AI_MODEL must be configured when AI_PROVIDER=anthropic")
+        system = ROLE_PROMPTS[role] + " Return ONLY one valid JSON object without markdown fences."
+        if retry_fix:
+            system += " Your previous response was invalid; strictly return the requested JSON object."
+        body = {
+            "model": model,
+            "max_tokens": 3000 if role == "auditor" else 1800,
+            "temperature": 0.1,
+            "system": system,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": (
+                        f"Subject type: {subject_type}\n"
+                        "Use only this redacted authorized security data. "
+                        "Do not perform or suggest unauthorized access.\n"
+                        + json.dumps(payload)[:12000]
+                    ),
+                }
+            ],
+        }
+        url = f"{self.base_url or 'https://api.anthropic.com/v1'}/messages"
+        headers = {
+            "x-api-key": self.api_key,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+        }
+        with httpx.Client(timeout=45.0) as client:
+            response = client.post(url, headers=headers, json=body)
+            response.raise_for_status()
+            data = response.json()
+        content = "\n".join(
+            str(block.get("text") or "")
+            for block in data.get("content", [])
+            if isinstance(block, dict) and block.get("type") == "text"
+        )
+        parsed = _parse_model_json(content)
+        if "explanation" not in parsed:
+            if not retry_fix:
+                return self._anthropic(role, subject_type, payload, retry_fix=True)
+            raise ValueError("Anthropic returned invalid JSON schema")
+        validated = self._validate(parsed)
+        usage = data.get("usage") or {}
+        return AnalysisResult(
+            provider="anthropic",
+            model=model,
+            output=validated,
+            prompt_tokens=int(usage.get("input_tokens") or 0),
+            completion_tokens=int(usage.get("output_tokens") or 0),
         )
