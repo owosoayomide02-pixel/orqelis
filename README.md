@@ -116,10 +116,10 @@ Packaged OS builds: `scripts/package-windows.ps1`, `scripts/package-macos.sh`, `
 
 Website and API are separate.
 
-1. **API** — Render Blueprint (`render.yaml`) or Docker (`infrastructure/docker/api.Dockerfile`). Health check: `GET /health`.
-2. **Website** — Netlify (`netlify.toml`, base `apps/web`). Set `NEXT_PUBLIC_APP_URL` to the Netlify URL and `NEXT_PUBLIC_API_URL` to the Render API URL so `/api/*` rewrites stay same-origin for cookies.
-3. On the API set `ENVIRONMENT=production`, `COOKIE_SECURE=true`, `CORS_ORIGINS` and `APP_BASE_URL` to the Netlify URL, `PUBLIC_API_URL` to the Render URL, Postgres `DATABASE_URL`, and long `JWT_SECRET` / `ENCRYPTION_KEY`.
-4. Enroll agents with `ORQELIS_API_URL=https://YOUR-API.onrender.com`.
+1. **API** — Railway using `infrastructure/docker/api.Dockerfile` (set `RAILWAY_DOCKERFILE_PATH` to that path), or deploy the Docker image elsewhere. Health check: `GET /health`.
+2. **Website** — Netlify (`netlify.toml`, base `apps/web`) or Vercel. Set `NEXT_PUBLIC_APP_URL` to the website URL and `NEXT_PUBLIC_API_URL` to the Railway API URL.
+3. On the API set `ENVIRONMENT=production`, `COOKIE_SECURE=true`, `CORS_ORIGINS` and `APP_BASE_URL` to the website URL, `PUBLIC_API_URL` to the Railway URL, Railway Postgres `DATABASE_URL`, and long random `JWT_SECRET` / `ENCRYPTION_KEY`.
+4. Enroll agents with `ORQELIS_API_URL` set to the public Railway API URL.
 
 ## Tests
 

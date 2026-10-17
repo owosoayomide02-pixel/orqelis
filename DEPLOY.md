@@ -1,71 +1,80 @@
-# Deploy Orqelis today (Vercel + Render)
+# Deploy Orqelis (Vercel + Railway)
 
 ## Architecture
 
 - **Vercel** → `apps/web` (signup, login, dashboard, AI roles UI)
-- **Render** → API Docker image (`infrastructure/docker/api.Dockerfile`) with Hunter tools + AI gateway
-- **Postgres** → Render Postgres (or any `DATABASE_URL`)
+- **Railway** → API Docker image (`infrastructure/docker/api.Dockerfile`) with Hunter tools + AI gateway
+- **PostgreSQL** → Railway Postgres (or another reachable PostgreSQL service)
 
 AI roles already in product: **Sentinel / Hunter / Analyst / Auditor / Fixer** (verify domain → Hunter scan → findings → Analyst/Fixer per finding → Auditor report).
 
-Hunter chain (authorized domains only): **subfinder → httpx → nmap → nuclei** (no Metasploit / Wi‑Fi).
+Hunter chain (authorized domains only): **subfinder → httpx → tlsx → katana → gobuster → nikto → nmap → nuclei** (no Metasploit / Wi‑Fi).
 
 ---
 
-## 1) Render API
+## 1) Railway API
 
-1. New Web Service → Docker → this repo  
-   Dockerfile: `infrastructure/docker/api.Dockerfile` · Context: repo root  
-2. Add **Postgres** and copy `DATABASE_URL`  
-3. Set env:
+1. Create a Railway project from this GitHub repository. Set the API service's **Root Directory** to the repository root.
+2. Add a PostgreSQL service to the project.
+3. In the API service variables, set `RAILWAY_DOCKERFILE_PATH=infrastructure/docker/api.Dockerfile`. The Dockerfile reads Railway's injected `$PORT` and binds to `0.0.0.0`.
+4. Set `DATABASE_URL=${{Postgres.DATABASE_URL}}` (replace `Postgres` with the exact PostgreSQL service name if different). The API converts PostgreSQL URLs to the async `asyncpg` driver format.
+5. Configure the API service's health check path as `/health`, then add:
 
 | Key | Value |
 |-----|--------|
 | `ENVIRONMENT` | `production` |
 | `COOKIE_SECURE` | `true` |
 | `AUTO_MIGRATE` | `true` |
-| `JWT_SECRET` | long random |
-| `ENCRYPTION_KEY` | long random |
-| `CORS_ORIGINS` | `https://YOUR-APP.vercel.app` |
-| `APP_BASE_URL` | `https://YOUR-APP.vercel.app` |
-| `PUBLIC_API_URL` | `https://YOUR-API.onrender.com` |
-| `AI_PROVIDER` | `groq` |
-| `AI_API_KEY` | your Groq key |
-| `AI_BASE_URL` | `https://api.groq.com/openai/v1` |
-| `AI_MODEL` | `openai/gpt-oss-20b` |
-| `AI_MODEL_LIGHT` | same or cheaper model |
-| `AI_MODEL_HEAVY` | same or stronger model |
-| `SCANNER_MODE` | `local` (Option A on Render) |
+| `JWT_SECRET` | long random secret |
+| `ENCRYPTION_KEY` | long random secret |
+| `CORS_ORIGINS` | frontend's HTTPS origin |
+| `APP_BASE_URL` | frontend's HTTPS URL |
+| `ADMIN_BASE_URL` | admin frontend URL, if deployed |
+| `PUBLIC_API_URL` | public HTTPS URL generated for the Railway API service |
+| `AI_PROVIDER` | `nvidia` |
+| `NVIDIA_API_KEY` | your NVIDIA NIM API key |
+| `OPENROUTER_API_KEY` | your OpenRouter API key (optional fallback) |
+| `AI_MODEL` | `meta/llama-3.3-70b-instruct` |
+| `AI_BASE_URL` | leave empty to use the selected provider's API endpoint |
+| `EMAIL_BACKEND` | `smtp` when production email is configured |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM` | credentials and sender supplied by your mail provider |
+| `SCANNER_MODE` | `local` |
+| `SCANNER_ENABLE_FFUF` | `true` |
+| `SCANNER_ENABLE_WAPITI` | `true` |
+| `FOUNDER_EMAIL`, `FOUNDER_PASSWORD` | optional initial founder account credentials |
 
-First build is slow (nuclei templates) — expected.
+Railway provides `PORT` to the container; do not hard-code a separate public port. Use the Railway PostgreSQL service's private `DATABASE_URL` reference and keep API and database in the same Railway project/region. The Docker build installs the scanner binaries and templates; builds can take several minutes and require successful access to upstream package and GitHub release sources.
 
-Health: `GET https://YOUR-API.onrender.com/health`
+NVIDIA NIM is the primary provider (`https://integrate.api.nvidia.com/v1`). OpenRouter is the fallback when configured. Provider calls require a valid model entitlement and incur separate provider usage charges. Use a persistent Railway service plan appropriate for the scanner workload and enable PostgreSQL backups.
+
+Health: `GET https://YOUR-RAILWAY-API-DOMAIN/health`
 
 ---
 
-## 2) Vercel web
+## 2) Frontend
 
-1. Import repo → Root Directory: **`apps/web`**  
-2. Env:
+Deploy the web frontend to Vercel (Root Directory: **`apps/web`**) or another static/frontend host. Set:
 
 | Key | Value |
 |-----|--------|
-| `NEXT_PUBLIC_APP_URL` | `https://YOUR-APP.vercel.app` |
-| `NEXT_PUBLIC_API_URL` | `https://YOUR-API.onrender.com` |
+| `NEXT_PUBLIC_APP_URL` | frontend's HTTPS URL |
+| `NEXT_PUBLIC_API_URL` | public HTTPS URL generated for the Railway API service |
+| `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` | only if customer Supabase Auth is enabled |
 
-3. Deploy. Open site → **Register** / **Login** → **Web Assets**.
+Include the exact frontend origin in the Railway API's `CORS_ORIGINS`. Deploy, then open the site → **Register** / **Login** → **Web Assets**.
 
 ---
 
 ## 3) Smoke test after deploy
 
-1. Register a tenant  
-2. Add a domain you own → DNS TXT verify  
-3. On the asset page, roles are on top: **Sentinel · Hunter · Analyst · Auditor · Fixer**  
-4. Run **Hunter** → wait for findings (subfinder → httpx → nmap → nuclei)  
-5. Use **Analyst** / **Fixer** on a finding; **Auditor** for report  
-6. Confirm Sentinel auto notes on high/critical (auto-detected)  
-7. Home **Download for Windows** → login → Devices (agent / enroll commands)
+1. Register and verify a tenant account; confirm terms/privacy consent and email delivery.
+2. Enter a domain you own or are explicitly authorized to assess; sign in.
+3. Choose **Hunter** and any supported follow-up tasks in the workspace.
+4. Add the presented DNS TXT record; scanning must remain blocked until ownership verification succeeds.
+5. Confirm the terminal completes and routes to findings; test **Analyst**, **Fixer** (draft only), and **Auditor**.
+6. Verify account recovery, session expiry/revocation, rate limits, logs, backups, and restore procedures.
+
+Local automated tests use an in-memory database and mock scanner. They do not test a real DNS provider, live scan tools, email provider, or live AI API. Validate those integrations in a controlled staging environment using an owned domain and monitored provider budgets before production.
 
 AI gateway roles (with prompts): sentinel, hunter, hunter_analysis, analyst, auditor, fixer.
 
@@ -73,7 +82,7 @@ AI gateway roles (with prompts): sentinel, hunter, hunter_analysis, analyst, aud
 
 ## Option B (later)
 
-If Render free tier is too weak for scans, run `scanner-service/` on a VM and set:
+For a separate scanner host, run `scanner-service/` on a VM and set:
 
 ```
 SCANNER_MODE=remote
