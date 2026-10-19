@@ -11,27 +11,25 @@ from sqlalchemy import select
 
 from app.config import settings
 from app.database import SessionLocal, init_db
-from app.models import InternalUser, new_id
+from app.models import InternalSession, InternalUser, new_id
 from app.routers import (
     admin,
-    agent,
     ai,
     alerts,
-    approvals,
     auth,
     demo,
     devices,
     events,
     incidents,
     organizations,
-    policies,
     reports,
     subscription,
     vulnerabilities,
+    waitlist,
     web_assets,
 )
 from app.seed import seed_reference_data
-from orqelis_security.passwords import hash_password
+from orqelis_security.passwords import hash_password, verify_password
 from orqelis_security.rate_limit import RateLimiter
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -65,12 +63,27 @@ async def bootstrap() -> None:
                         id=new_id(),
                         email=settings.founder_email.lower(),
                         password_hash=hash_password(settings.founder_password),
-                        display_name="Founder",
+                        display_name="",
                         role="FOUNDER",
+                        onboarding_complete=False,
                     )
                 )
                 await db.commit()
                 log.info("Bootstrapped founder account %s", settings.founder_email)
+            elif not verify_password(settings.founder_password, existing.password_hash):
+                existing.password_hash = hash_password(settings.founder_password)
+                sessions = (
+                    await db.execute(
+                        select(InternalSession).where(
+                            InternalSession.internal_user_id == existing.id,
+                            InternalSession.revoked_at.is_(None),
+                        )
+                    )
+                ).scalars().all()
+                for session in sessions:
+                    session.revoked_at = datetime.now(UTC)
+                await db.commit()
+                log.info("Synchronized founder credentials from configured environment")
             else:
                 await db.commit()
 
@@ -79,10 +92,12 @@ async def bootstrap() -> None:
 async def lifespan(_: FastAPI):
     await bootstrap()
     log.info(
-        "AI gateway provider=%s model=%s configured=%s",
+        "AI gateway provider=%s model=%s configured=%s fallback_provider=%s fallback_configured=%s",
         settings.resolved_ai_provider,
         settings.ai_model or "default",
         bool(settings.resolved_ai_key),
+        settings.resolved_ai_fallback_provider or "none",
+        bool(settings.resolved_ai_fallback_key),
     )
     yield
 
@@ -99,7 +114,7 @@ def create_app() -> FastAPI:
         allow_origins=settings.cors_origin_list,
         allow_credentials=True,
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-        allow_headers=["Authorization", "Content-Type", "X-Organization-Id", "X-Orqelis-Device-Token"],
+        allow_headers=["Authorization", "Content-Type", "X-Organization-Id"],
     )
 
     @app.middleware("http")
@@ -134,18 +149,16 @@ def create_app() -> FastAPI:
     app.include_router(auth.router)
     app.include_router(organizations.router)
     app.include_router(devices.router)
-    app.include_router(agent.router)
     app.include_router(events.router)
     app.include_router(alerts.router)
     app.include_router(incidents.router)
     app.include_router(vulnerabilities.router)
     app.include_router(ai.router)
     app.include_router(reports.router)
-    app.include_router(approvals.router)
-    app.include_router(policies.router)
     app.include_router(subscription.router)
     app.include_router(demo.router)
     app.include_router(admin.router)
+    app.include_router(waitlist.router)
     app.include_router(web_assets.router)
     return app
 

@@ -165,11 +165,9 @@ class Device(Base):
     organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), index=True)
     name: Mapped[str] = mapped_column(String(160), default="")
     hostname: Mapped[str] = mapped_column(String(160), default="")
-    os_name: Mapped[str] = mapped_column(String(80), default="Windows")
+    os_name: Mapped[str] = mapped_column(String(80), default="")
     os_version: Mapped[str] = mapped_column(String(80), default="")
-    agent_version: Mapped[str] = mapped_column(String(32), default="0.1.0")
     status: Mapped[str] = mapped_column(String(32), default="pending")
-    token_hash: Mapped[str | None] = mapped_column(String(128), unique=True, nullable=True)
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     health_json: Mapped[dict] = mapped_column(JSON, default=dict)
     posture_json: Mapped[dict] = mapped_column(JSON, default=dict)
@@ -177,48 +175,6 @@ class Device(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     organization: Mapped[Organization] = relationship(back_populates="devices")
-    enrollments: Mapped[list["DeviceEnrollment"]] = relationship(back_populates="device")
-
-
-class DeviceEnrollment(Base):
-    __tablename__ = "device_enrollments"
-
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
-    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), index=True)
-    device_id: Mapped[str | None] = mapped_column(ForeignKey("devices.id"), nullable=True)
-    code_hash: Mapped[str] = mapped_column(String(128), unique=True, index=True)
-    created_by_user_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
-    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-
-    device: Mapped[Device | None] = relationship(back_populates="enrollments")
-
-
-class AgentVersion(Base):
-    __tablename__ = "agent_versions"
-    __table_args__ = (UniqueConstraint("version", "platform", name="uq_agent_version_platform"),)
-
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
-    version: Mapped[str] = mapped_column(String(32), index=True)
-    platform: Mapped[str] = mapped_column(String(32), default="windows")
-    notes: Mapped[str] = mapped_column(Text, default="")
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-
-
-class Policy(Base):
-    __tablename__ = "policies"
-
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
-    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), index=True)
-    name: Mapped[str] = mapped_column(String(160), default="Default")
-    collect_process_metadata: Mapped[bool] = mapped_column(Boolean, default=True)
-    collect_security_events: Mapped[bool] = mapped_column(Boolean, default=True)
-    collect_network_metadata: Mapped[bool] = mapped_column(Boolean, default=True)
-    heartbeat_seconds: Mapped[int] = mapped_column(Integer, default=30)
-    batch_max_events: Mapped[int] = mapped_column(Integer, default=100)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 
 class WebAsset(Base):
@@ -346,50 +302,6 @@ class Vulnerability(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
-class ApprovalRequest(Base):
-    __tablename__ = "approval_requests"
-
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
-    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), index=True)
-    requested_by_user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"), nullable=True)
-    action_id: Mapped[str | None] = mapped_column(ForeignKey("actions.id"), nullable=True)
-    title: Mapped[str] = mapped_column(String(240))
-    reason: Mapped[str] = mapped_column(Text, default="")
-    risk_class: Mapped[str] = mapped_column(String(32), default="high")
-    status: Mapped[str] = mapped_column(String(32), default="pending")
-    decided_by_user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"), nullable=True)
-    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-
-
-class ActionRecord(Base):
-    __tablename__ = "actions"
-
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
-    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), index=True)
-    device_id: Mapped[str | None] = mapped_column(ForeignKey("devices.id"), nullable=True)
-    kind: Mapped[str] = mapped_column(String(64))
-    title: Mapped[str] = mapped_column(String(240))
-    details_json: Mapped[dict] = mapped_column(JSON, default=dict)
-    risk_class: Mapped[str] = mapped_column(String(32), default="low")
-    status: Mapped[str] = mapped_column(String(32), default="recommended")
-    result_json: Mapped[dict] = mapped_column(JSON, default=dict)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-
-
-class AgentCommand(Base):
-    __tablename__ = "agent_commands"
-
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
-    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), index=True)
-    device_id: Mapped[str] = mapped_column(ForeignKey("devices.id"), index=True)
-    kind: Mapped[str] = mapped_column(String(64))
-    payload_json: Mapped[dict] = mapped_column(JSON, default=dict)
-    status: Mapped[str] = mapped_column(String(32), default="pending")
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-    acked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-
-
 class AIAnalysis(Base):
     __tablename__ = "ai_analyses"
 
@@ -469,10 +381,22 @@ class SystemIncident(Base):
 
 
 class DemoWorkspace(Base):
-    """Marks an organization as labeled demo data. Never mix with live agent telemetry."""
+    """Marks an organization as labeled demo data. Never mix with live telemetry."""
 
     __tablename__ = "demo_workspaces"
 
     organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), primary_key=True)
     label: Mapped[str] = mapped_column(String(160), default="LABELED DEMO — not live telemetry")
     loaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class WaitlistEntry(Base):
+    __tablename__ = "waitlist_entries"
+    __table_args__ = (UniqueConstraint("email", name="uq_waitlist_entries_email"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    email: Mapped[str] = mapped_column(String(254))
+    consented_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    notification_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    resend_contact_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

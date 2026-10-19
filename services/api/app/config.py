@@ -72,8 +72,6 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:3000,http://localhost:3001"
     app_base_url: str = "http://localhost:3000"
     admin_base_url: str = "http://localhost:3001"
-    public_api_url: str = ""
-    next_public_api_url: str = ""
 
     rate_limit_per_minute: int = 120
     auth_rate_limit_per_minute: int = 20
@@ -84,6 +82,9 @@ class Settings(BaseSettings):
     smtp_password: str = ""
     smtp_from: str = "Orqelis <noreply@localhost>"
     email_backend: str = "log"
+    resend_api_key: str = ""
+    resend_from_email: str = ""
+    resend_waitlist_notification_email: str = ""
 
     ai_provider: str = "heuristic"
     ai_api_key: str = ""
@@ -141,15 +142,6 @@ class Settings(BaseSettings):
             if item and item not in origins:
                 origins.append(item)
         return origins
-
-    @property
-    def resolved_public_api_url(self) -> str:
-        configured_url = (self.public_api_url or "").strip() or (self.next_public_api_url or "").strip()
-        if configured_url:
-            return configured_url
-        if not self.is_development:
-            return "https://orqelis-api-production.up.railway.app"
-        return f"http://{self.api_host}:{self.api_port}"
 
     @property
     def resolved_ai_key(self) -> str:
