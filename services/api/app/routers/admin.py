@@ -12,7 +12,6 @@ from app.database import get_db
 from app.deps import ADMIN_COOKIE_NAME, get_internal_user
 from app.models import (
     AIUsage,
-    AgentVersion,
     Alert,
     AuditLog,
     Device,
@@ -244,7 +243,6 @@ async def overview(db: AsyncSession = Depends(get_db), user: InternalUser = Depe
 
     ai_rows = (await db.execute(select(AIUsage))).scalars().all()
     ai_cost_cents = sum(row.estimated_cost_cents for row in ai_rows)
-    versions = (await db.execute(select(AgentVersion))).scalars().all()
     system_incidents = (
         await db.execute(select(SystemIncident).order_by(SystemIncident.created_at.desc()).limit(20))
     ).scalars().all()
@@ -344,9 +342,6 @@ async def overview(db: AsyncSession = Depends(get_db), user: InternalUser = Depe
                 "created_at": row.created_at.isoformat() if row.created_at else None,
             }
             for row in recent_users
-        ],
-        "agent_versions": [
-            {"platform": row.platform, "version": row.version, "notes": row.notes} for row in versions
         ],
         "system_incidents": [
             {
