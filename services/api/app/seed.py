@@ -3,7 +3,7 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import AgentVersion, Plan, new_id
+from app.models import Plan, new_id
 
 DEFAULT_PLANS = [
     {
@@ -53,14 +53,4 @@ async def seed_reference_data(db: AsyncSession) -> None:
         existing = (await db.execute(select(Plan).where(Plan.code == item["code"]))).scalar_one_or_none()
         if existing is None:
             db.add(Plan(id=new_id(), **item, currency="USD", is_public=True))
-    for platform, notes in (
-        ("windows", "Windows endpoint agent. Telemetry only; no remote command execution."),
-        ("macos", "macOS endpoint agent. Gatekeeper/firewall posture plus process and network metadata."),
-        ("linux", "Linux endpoint agent. Auth log/journal telemetry plus host firewall posture."),
-    ):
-        existing = (
-            await db.execute(select(AgentVersion).where(AgentVersion.version == "0.1.0", AgentVersion.platform == platform))
-        ).scalar_one_or_none()
-        if existing is None:
-            db.add(AgentVersion(id=new_id(), version="0.1.0", platform=platform, notes=notes))
     await db.commit()

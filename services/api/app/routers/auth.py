@@ -27,7 +27,6 @@ from app.models import (
     LoginAttempt,
     Membership,
     Organization,
-    Policy,
     Subscription,
     User,
     UserSession,
@@ -170,7 +169,6 @@ async def register(payload: RegisterPayload, request: Request, response: Respons
     db.add(org)
     await db.flush()
     db.add(Membership(id=new_id(), user_id=user.id, organization_id=org.id, role="OWNER"))
-    db.add(Policy(id=new_id(), organization_id=org.id, name="Default endpoint policy"))
     db.add(Subscription(id=new_id(), organization_id=org.id, status="none", provider="development"))
     token = await _issue_email_token(db, user, "verify")
     await _create_session(db, user, request, response)
