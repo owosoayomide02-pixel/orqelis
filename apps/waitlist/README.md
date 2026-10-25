@@ -2,7 +2,9 @@
 
 This is a standalone waitlist website, separate from the main Orqelis site. Deploy `apps/waitlist` as its own Vercel project and assign it a dedicated domain such as `waitlist.orqelis.com`.
 
-The waitlist privacy notice is available at `/privacy`. It is a publication draft and contains placeholders for the legal entity, postal address, and privacy contact. Complete those details and obtain legal review before publishing the waitlist.
+The waitlist privacy notice is available at `/privacy` and identifies Owoso Ayomide as the operator, with a business location in Osun State, Nigeria. The support inbox is `support@waitlist.orqelis.dev`. Review the notice against actual provider configurations and applicable requirements before publishing. Scanner scope and intended safety controls are described at `/about-scanner`.
+
+The waitlist page includes indicative pricing copied from the main site's proposed plans. Billing is not live, and the plans and limits may change before launch. Competitor pricing notes link to the public vendor pages reviewed for the comparison.
 
 ## Deploy to Vercel
 

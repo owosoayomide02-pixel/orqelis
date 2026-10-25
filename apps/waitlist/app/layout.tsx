@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./styles.css";
 
 export const metadata: Metadata = {
-  title: "Orqelis Early Access",
-  description: "Join the Orqelis early access waitlist.",
+  title: "Orqelis | Website security for small teams",
+  description: "Join the Orqelis waitlist for practical, verified-domain web security checks.",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

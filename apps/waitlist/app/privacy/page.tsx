@@ -9,7 +9,7 @@ const sections = [
   {
     title: "1. Who is responsible",
     paragraphs: [
-      "This notice applies to the Orqelis early-access waitlist at this website. The organization responsible for the waitlist is [LEGAL ENTITY NAME], at [POSTAL ADDRESS] (\"Orqelis,\" \"we,\" or \"us\"). For privacy questions or requests, contact [PRIVACY EMAIL]. These business contact details must be completed before publication.",
+      "This notice applies to the Orqelis early-access waitlist at this website. The waitlist is operated by Owoso Ayomide (\"Orqelis\" or \"we\"), with a business location in Osun State, Nigeria. For privacy questions or requests, contact support@waitlist.orqelis.dev.",
     ],
   },
   {
@@ -23,7 +23,7 @@ const sections = [
     title: "3. How we use your information",
     paragraphs: [
       "We use your email address to record your interest in Orqelis, manage the early-access list, contact you about an early-access decision, and send a launch announcement. We do not use waitlist addresses for unrelated marketing. We may also use technical information to operate, secure, troubleshoot, and prevent abuse of the site and signup service.",
-      "We process your signup information to take steps you request by joining the list and, where required, on the basis of your consent to receive these updates. You can withdraw that consent at any time by contacting [PRIVACY EMAIL].",
+      "We process your signup information to manage the waitlist and send the updates described above. You can ask us to stop sending these updates at any time by contacting support@waitlist.orqelis.dev.",
     ],
   },
   {
@@ -37,14 +37,14 @@ const sections = [
   {
     title: "5. Retention",
     paragraphs: [
-      "We keep waitlist information while it is useful for managing early access and launch communications, and for a reasonable period afterward to maintain suppression, security, and compliance records. We periodically review stored entries and remove or anonymize information that is no longer needed, unless law requires longer retention.",
-      "If a contact has also been created in Resend, removing the application database entry does not automatically remove the separate Resend contact. Contact us to request removal from both systems. The precise retention schedule should be confirmed before this notice is treated as a contractual guarantee.",
+      "We retain waitlist information while it is needed to manage early access and launch communications. When it is no longer needed for those purposes, we will delete or anonymize it unless we need to retain it for legal, security, or recordkeeping purposes. You can request deletion by contacting us.",
+      "If a contact has also been created in Resend, removing the application database entry does not automatically remove the separate Resend contact. Contact us to request removal from both systems.",
     ],
   },
   {
     title: "6. Your choices and privacy rights",
     paragraphs: [
-      "You can unsubscribe from waitlist communications or ask us to access, correct, delete, restrict, or otherwise handle your personal information by emailing [PRIVACY EMAIL]. Depending on where you live, you may have additional rights under applicable privacy law, including the right to complain to a data-protection authority. We may need to verify your request before acting on it.",
+      "You can unsubscribe from waitlist communications or ask us to access, correct, delete, restrict, or otherwise handle your personal information by emailing support@waitlist.orqelis.dev. Depending on where you live, you may have additional rights under applicable privacy law, including the right to complain to a data-protection authority. We may need to verify your request before acting on it.",
       "If you withdraw permission to receive updates, we will stop sending waitlist communications. This does not affect processing that took place before withdrawal or records we must retain for legitimate legal or security reasons.",
     ],
   },
@@ -58,13 +58,13 @@ const sections = [
   {
     title: "8. Children",
     paragraphs: [
-      "The waitlist is intended for people interested in an organizational security product and is not directed to children. Do not submit a child's personal information. If you believe a child has submitted information, contact [PRIVACY EMAIL] so we can review it.",
+      "The waitlist is intended for people interested in an organizational security product and is not directed to children. Do not submit a child's personal information. If you believe a child has submitted information, contact support@waitlist.orqelis.dev so we can review it.",
     ],
   },
   {
     title: "9. Changes and contact",
     paragraphs: [
-      "We may update this notice when our practices or legal requirements change. We will publish the revised notice here and update its effective date. For questions or privacy requests, contact [PRIVACY EMAIL].",
+      "We may update this notice when our practices or legal requirements change. We will publish the revised notice here and update its effective date. For questions or privacy requests, contact support@waitlist.orqelis.dev.",
     ],
   },
 ];
@@ -79,10 +79,10 @@ export default function WaitlistPrivacyPage() {
       <article className="policy-content">
         <p className="eyebrow">PRIVACY · WAITLIST</p>
         <h1>Waitlist Privacy Policy</h1>
-        <p className="policy-date">Effective date: 19 October 2026 · Last updated: 19 October 2026</p>
+        <p className="policy-date">Effective date: 19 October 2026 · Last updated: 25 October 2026</p>
         <p className="policy-notice">
-          Publication draft: complete the bracketed business and privacy contact details and have this notice
-          reviewed against actual hosting, provider, and legal requirements before launch.
+          This notice covers the waitlist only. Orqelis is in development; service providers, retention practices,
+          and applicable privacy requirements should be reviewed as the service and its operations evolve.
         </p>
         <p className="policy-intro">
           This notice explains how Orqelis handles information when you join the separate Orqelis early-access
